@@ -8,7 +8,6 @@
 #include <unistd.h>
 #include <wiringPi.h>
 
-
 // LoRa configuration constants
 const uint32_t FREQUENCY = 915000000; // 915 MHz in Hz
 const int8_t TX_POWER = 22;           // +22 dBm
@@ -334,13 +333,13 @@ bool initialize_receiver(sx126x_mod_params_lora_t *mod_params,
   }
 
   // Set sync word to 0x3444 (public LoRa network)
-  std::cout << "Setting sync word to 0x3444..." << std::endl;
-  status = sx126x_set_lora_sync_word(NULL, 0x44);
-  if (status != SX126X_STATUS_OK) {
-    std::cerr << "Failed to set sync word, status: " << (int)status
-              << std::endl;
-    return false;
-  }
+  // std::cout << "Setting sync word to 0x3444..." << std::endl;
+  // status = sx126x_set_lora_sync_word(NULL, 0x44);
+  // if (status != SX126X_STATUS_OK) {
+  //   std::cerr << "Failed to set sync word, status: " << (int)status
+  //             << std::endl;
+  //   return false;
+  // }
 
   // Enable receiver
   receiver_enable();
@@ -369,7 +368,6 @@ bool receive_packet(uint8_t *payload, uint8_t *payload_len, int16_t *rssi,
   int timeout =
       RX_TIMEOUT * 1000; // Convert to milliseconds (RX_TIMEOUT is in seconds)
   while (timeout > 0) {
-    // Check for interrupt on DIO1
     if (dio1_get_irq_status()) {
       std::cout << "Interrupt detected on DIO1" << std::endl;
       break;
@@ -378,6 +376,8 @@ bool receive_packet(uint8_t *payload, uint8_t *payload_len, int16_t *rssi,
     timeout--;
   }
 
+  // Check for interrupt on DIO1
+  std::cout << timeout << " " << dio1_get_irq_status() << std::endl;
   if (timeout == 0) {
     std::cout << "RX timeout - no packet received" << std::endl;
     return false;
@@ -642,45 +642,98 @@ void show_configuration() {
 
 // Function to read and display actual configuration from the SX126X chip
 void read_chip_configuration() {
-  sx126x_status_t status;
-
   std::cout << "\n==========================================" << std::endl;
-  std::cout << "    SX126X Chip Configuration (from chip)" << std::endl;
+  std::cout << "    SX126X Chip Configuration (Live Read)" << std::endl;
   std::cout << "==========================================\n" << std::endl;
 
-  // Get chip status
+  // 1. Chip Status
   sx126x_chip_status_t chip_status;
-  status = sx126x_get_status(NULL, &chip_status);
-  if (status == SX126X_STATUS_OK) {
+  if (sx126x_get_status(NULL, &chip_status) == SX126X_STATUS_OK) {
     std::cout << "--- Chip Status ---" << std::endl;
-    std::cout << "Status: OK" << std::endl;
     std::cout << "Command Status: " << (int)chip_status.cmd_status << std::endl;
     std::cout << "Chip Mode: " << (int)chip_status.chip_mode << std::endl;
-  } else {
-    std::cerr << "Failed to get chip status, status: " << (int)status
-              << std::endl;
   }
 
-  // Read DIO IRQ mask
+  // 2. Device Errors
+  sx126x_errors_mask_t errors;
+  if (sx126x_get_device_errors(NULL, &errors) == SX126X_STATUS_OK) {
+    std::cout << "\n--- Device Errors ---" << std::endl;
+    std::cout << "Error Mask: 0x" << std::hex << (int)errors << std::dec
+              << std::endl;
+    if (errors == 0)
+      std::cout << "No Errors" << std::endl;
+  }
+
+  // 3. IRQ Status
   sx126x_irq_mask_t irq_mask;
-  status = sx126x_get_irq_status(NULL, &irq_mask);
-  if (status == SX126X_STATUS_OK) {
-    std::cout << "\n--- Interrupt Configuration ---" << std::endl;
+  if (sx126x_get_irq_status(NULL, &irq_mask) == SX126X_STATUS_OK) {
+    std::cout << "\n--- Interrupt Status ---" << std::endl;
     std::cout << "IRQ Mask: 0x" << std::hex << (int)irq_mask << std::dec
               << std::endl;
-  } else {
-    std::cerr << "Failed to read IRQ status, status: " << (int)status
-              << std::endl;
   }
 
-  std::cout << "\n--- Configured Parameters (from constants) ---" << std::endl;
-  std::cout << "Frequency: " << (FREQUENCY / 1000000.0) << " MHz" << std::endl;
-  std::cout << "TX Power: +" << (int)TX_POWER << " dBm" << std::endl;
-  std::cout << "Spreading Factor: SF9" << std::endl;
-  std::cout << "Bandwidth: 125 kHz" << std::endl;
-  std::cout << "Coding Rate: 4/6" << std::endl;
-  std::cout << "Preamble Length: " << PREAMBLE_LENGTH << " symbols"
-            << std::endl;
+  // 4. Instantaneous RSSI
+  int16_t rssi_inst;
+  if (sx126x_get_rssi_inst(NULL, &rssi_inst) == SX126X_STATUS_OK) {
+    std::cout << "\n--- Radio State ---" << std::endl;
+    std::cout << "Instantaneous RSSI: " << rssi_inst << " dBm" << std::endl;
+  }
+
+  // 5. RX Buffer Status
+  sx126x_rx_buffer_status_t rx_buffer;
+  if (sx126x_get_rx_buffer_status(NULL, &rx_buffer) == SX126X_STATUS_OK) {
+    std::cout << "\n--- RX Buffer Status ---" << std::endl;
+    std::cout << "RX Payload Length: " << (int)rx_buffer.pld_len_in_bytes
+              << " bytes" << std::endl;
+    std::cout << "RX Buffer Pointer: 0x" << std::hex
+              << (int)rx_buffer.buffer_start_pointer << std::dec << std::endl;
+  }
+
+  std::cout << "\n--- Internal Memory Registers ---" << std::endl;
+
+  // 6. RF Frequency (0x088B)
+  uint8_t freq_bytes[4] = {0};
+  if (sx126x_read_register(NULL, 0x088B, freq_bytes, 4) == SX126X_STATUS_OK) {
+    uint32_t freq_reg =
+        ((uint32_t)freq_bytes[0] << 24) | ((uint32_t)freq_bytes[1] << 16) |
+        ((uint32_t)freq_bytes[2] << 8) | (uint32_t)freq_bytes[3];
+    double freq_mhz = (freq_reg * 32000000.0) / (1UL << 25) / 1000000.0;
+    std::cout << "RF Frequency: " << freq_mhz << " MHz" << std::endl;
+  }
+
+  // 7. LoRa Sync Word (0x0740)
+  uint8_t sync_word[2] = {0};
+  if (sx126x_read_register(NULL, 0x0740, sync_word, 2) == SX126X_STATUS_OK) {
+    std::cout << "LoRa Sync Word: 0x" << std::hex << (int)sync_word[0]
+              << (int)sync_word[1] << std::dec;
+    if (sync_word[0] == 0x34 && sync_word[1] == 0x44)
+      std::cout << " (Public LoRaWAN)";
+    else if (sync_word[0] == 0x14 && sync_word[1] == 0x24)
+      std::cout << " (Private Network)";
+    std::cout << std::endl;
+  }
+
+  // 8. OCP (0x08E7)
+  uint8_t ocp = 0;
+  if (sx126x_read_register(NULL, 0x08E7, &ocp, 1) == SX126X_STATUS_OK) {
+    std::cout << "OCP Config: 0x" << std::hex << (int)ocp << std::dec;
+    if (ocp == 0x18)
+      std::cout << " (60mA - Default)";
+    else if (ocp == 0x38)
+      std::cout << " (140mA)";
+    std::cout << std::endl;
+  }
+
+  // 9. IQ Polarity Setup (0x0736)
+  uint8_t iq_setup = 0;
+  if (sx126x_read_register(NULL, 0x0736, &iq_setup, 1) == SX126X_STATUS_OK) {
+    std::cout << "IQ Polarity: 0x" << std::hex << (int)iq_setup << std::dec;
+    if (iq_setup == 0x0D)
+      std::cout << " (Standard)";
+    else if (iq_setup == 0x09)
+      std::cout << " (Inverted)";
+    std::cout << std::endl;
+  }
 
   std::cout << "\n==========================================\n" << std::endl;
 }
@@ -780,7 +833,87 @@ void test_spi_communication() {
 }
 
 // Function to read and display all SX126X registers
-// Removed unused register value formatting functions
+// Register value formatting functions - convert raw values to human-readable
+// format
+std::string format_operating_mode(uint8_t value) {
+  std::string modes[] = {"Sleep",
+                         "Standby RC",
+                         "Standby XOSC",
+                         "FS",
+                         "RX",
+                         "TX",
+                         "Channel Activity Detection"};
+  int mode = value & 0x07;
+  if (mode < 7)
+    return modes[mode];
+  return "Unknown";
+}
+
+std::string format_tx_config(uint8_t value) {
+  std::string result = "TX Config: ";
+  if (value & 0x01)
+    result += "RampTime[3:0]=" + std::to_string((value >> 1) & 0x0F);
+  return result;
+}
+
+std::string format_modulation_sf_bw(uint8_t value) {
+  std::string result = "SF/BW: SF=";
+  int sf = (value >> 4) & 0x0F;
+  int bw = value & 0x0F;
+  result += std::to_string(5 + sf);
+  result += " BW=";
+  const char *bw_names[] = {"7.81k", "10.4k", "15.6k", "20.8k", "31.2k",
+                            "41.7k", "62.5k", "125k",  "250k",  "500k"};
+  if (bw < 10)
+    result += bw_names[bw];
+  else
+    result += "Unknown";
+  return result;
+}
+
+std::string format_modulation_cr_ldro(uint8_t value) {
+  std::string result = "CR/LDRO: CR=4/";
+  int cr = (value >> 1) & 0x07;
+  int ldro = value & 0x01;
+  result += std::to_string(5 + cr);
+  result += " LDRO=" + std::string(ldro ? "ON" : "OFF");
+  return result;
+}
+
+std::string format_packet_params_3(uint8_t value) {
+  std::string result = "Header=";
+  result += (value & 0x01) ? "Explicit" : "Implicit";
+  result += " CRC=" + std::string((value & 0x04) ? "ON" : "OFF");
+  result += " IQ_Invert=" + std::string((value & 0x08) ? "ON" : "OFF");
+  return result;
+}
+
+std::string format_irq_status(uint16_t value) {
+  std::string result = "";
+  if (value & 0x0001)
+    result += "TX_DONE ";
+  if (value & 0x0002)
+    result += "RX_DONE ";
+  if (value & 0x0004)
+    result += "PREAMBLE_DETECTED ";
+  if (value & 0x0008)
+    result += "SYNCWORD_VALID ";
+  if (value & 0x0010)
+    result += "HEADER_VALID ";
+  if (value & 0x0020)
+    result += "HEADER_ERROR ";
+  if (value & 0x0040)
+    result += "CRC_ERROR ";
+  if (value & 0x0080)
+    result += "CAD_DONE ";
+  if (value & 0x0100)
+    result += "CAD_DETECTED ";
+  if (value & 0x0200)
+    result += "TIMEOUT ";
+  if (result.empty())
+    result = "None";
+  return result;
+}
 
 // Convert RF frequency register bytes to MHz
 // SX126X stores frequency as: Freq(Hz) = Register_Value * (Fxosc / 2^25)
@@ -809,28 +942,37 @@ void read_all_registers() {
   test_spi_communication();
 
   // Important SX126X register addresses
-  // Note: SX126X is primarily a command-driven chip, not a memory-mapped one like SX127X.
-  // Most parameters (Modulation, Packet, IRQ, etc.) are configured via SPI commands.
-  // Only a few internal registers are directly accessible.
   const struct {
     uint16_t addr;
     const char *name;
   } registers[] = {
-      // Frequency registers
-      {0x088B, "RF Frequency (MSB)"},
-      {0x088C, "RF Frequency"},
-      {0x088D, "RF Frequency"},
-      {0x088E, "RF Frequency (LSB)"},
+      // SX1261/2 Datasheet - Official Register Map (Section 13)
 
-      // Sync Word registers (Previously mislabeled as IRQ Status)
+      // GFSK Related Registers
+      {0x06B8, "GFSK Node Address"},
+      {0x06B9, "GFSK Broadcast Address"},
+      {0x06C0, "GFSK Sync Word 0"},
+      {0x06C1, "GFSK Sync Word 1"},
+      {0x06C2, "GFSK Sync Word 2"},
+      {0x06C3, "GFSK Sync Word 3"},
+      {0x06C4, "GFSK Sync Word 4"},
+      {0x06C5, "GFSK Sync Word 5"},
+      {0x06C6, "GFSK Sync Word 6"},
+      {0x06C7, "GFSK Sync Word 7"},
+
+      // LoRa Related Registers
+      {0x0736, "IQ Polarity Setup"},
       {0x0740, "LoRa Sync Word (MSB)"},
       {0x0741, "LoRa Sync Word (LSB)"},
 
-      // Known internal registers (often modified for optimizations)
-      {0x0736, "IQ Polarity Setup"},
+      // Frequency and Hardware Registers
+      {0x088B, "RF Frequency (MSB)"},
+      {0x088C, "RF Frequency (Mid-High)"},
+      {0x088D, "RF Frequency (Mid-Low)"},
+      {0x088E, "RF Frequency (LSB)"},
       {0x08E7, "Over Current Protection (OCP)"},
-      {0x08E9, "XTA Trim"},
-      {0x08F0, "TX Modulation Setup"},
+      {0x08E9, "XTA Trim (Crystal oscillator)"},
+      {0x08F0, "TX Modulation Setup (Errata)"},
   };
 
   std::cout << "--- Register Values ---\n" << std::endl;
@@ -889,28 +1031,24 @@ void read_all_registers() {
       case 0x0740:
       case 0x0741:
         if (buffer == 0x34 || buffer == 0x44) {
-            std::cout << "(Public LoRaWAN Sync Word)";
+          std::cout << "(Public LoRaWAN Sync Word)";
         } else if (buffer == 0x14 || buffer == 0x24) {
-            std::cout << "(Private LoRa Network Sync Word)";
+          std::cout << "(Private LoRa Network Sync Word)";
         } else {
-            std::cout << "(Custom Sync Word)";
+          std::cout << "(Custom Sync Word)";
         }
         break;
       case 0x08E7:
-        if (buffer == 0x18) {
-            std::cout << "(OCP: 60mA - Default)";
-        } else if (buffer == 0x38) {
-            std::cout << "(OCP: 140mA)";
-        } else {
-            std::cout << "(OCP Custom Value)";
-        }
+        if (buffer == 0x18)
+          std::cout << "(OCP: 60mA - Default)";
+        else if (buffer == 0x38)
+          std::cout << "(OCP: 140mA)";
         break;
       case 0x0736:
-        if (buffer == 0x0D) {
-            std::cout << "(IQ: Standard/Default)";
-        } else if (buffer == 0x09) {
-            std::cout << "(IQ: Inverted)";
-        }
+        if (buffer == 0x0D)
+          std::cout << "(IQ: Standard/Default)";
+        else if (buffer == 0x09)
+          std::cout << "(IQ: Inverted)";
         break;
       default:
         if (buffer == 0xFF) {
@@ -1146,12 +1284,12 @@ int main(int argc, char *argv[]) {
   sx126x_clear_irq_status(NULL, SX126X_IRQ_ALL);
 
   // Set sync word to 0x3444 (public LoRa network)
-  std::cout << "Setting sync word to 0x3444..." << std::endl;
-  status = sx126x_set_lora_sync_word(NULL, 0x44); // Low byte of 0x3444
-  if (status != SX126X_STATUS_OK) {
-    std::cerr << "Failed to set sync word, status: " << (int)status
-              << std::endl;
-  }
+  // std::cout << "Setting sync word to 0x3444..." << std::endl;
+  // status = sx126x_set_lora_sync_word(NULL, 0x44); // Low byte of 0x3444
+  // if (status != SX126X_STATUS_OK) {
+  //   std::cerr << "Failed to set sync word, status: " << (int)status
+  //             << std::endl;
+  // }
 
   // Read and verify chip configuration
   std::cout << "\n--- Verifying Configuration on Chip ---" << std::endl;
