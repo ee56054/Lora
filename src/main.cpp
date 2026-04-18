@@ -58,26 +58,118 @@ void gpio_set_value(int pin, int value) { digitalWrite(pin, value); }
 // Helper function to check if SX126X is busy
 bool sx126x_is_busy() { return gpio_get_value(BUSY_PIN) == 1; }
 
-// Helper function to enable transmit (set DIO4 high)
-void transmit_enable() {
+// Helper function to connect RF switch to TX path (set DIO4 high)
+void set_rf_switch_tx() {
   gpio_set_value(DIO4_PIN, 1);
-  std::cout << "HAL: Transmit enabled (DIO4 set high)" << std::endl;
+  std::cout << "HAL: RF Switch set to TX (DIO4 set high)" << std::endl;
 }
 
-// Helper function to disable transmit (set DIO4 low)
-void transmit_disable() {
+// Helper function to connect RF switch to RX path (set DIO4 low)
+void set_rf_switch_rx() {
   gpio_set_value(DIO4_PIN, 0);
-  std::cout << "HAL: Transmit disabled (DIO4 set low)" << std::endl;
-}
-
-// Helper function to enable receiver (set DIO4 low for RX)
-void receiver_enable() {
-  gpio_set_value(DIO4_PIN, 0);
-  std::cout << "HAL: Receiver enabled (DIO4 set low)" << std::endl;
+  std::cout << "HAL: RF Switch set to RX (DIO4 set low)" << std::endl;
 }
 
 // Helper function to check DIO1 interrupt status
 int dio1_get_irq_status() { return gpio_get_value(DIO1_PIN); }
+
+// Interrupt handler for DIO1 - processes packets directly
+void dio1_interrupt_handler(void) {
+  uint8_t payload[256];
+  uint8_t payload_len;
+  int16_t rssi = 0;
+  int8_t snr = 0;
+  static uint32_t packet_count = 0;
+  sx126x_status_t status;
+
+  // Get IRQ status
+  sx126x_irq_mask_t irq_mask;
+  status = sx126x_get_irq_status(NULL, &irq_mask);
+  if (status != SX126X_STATUS_OK) {
+    std::cerr << "Failed to get IRQ status, status: " << (int)status
+              << std::endl;
+    return;
+  }
+
+  // Check for RX done
+  if (irq_mask & SX126X_IRQ_RX_DONE) {
+    // Get packet status
+    sx126x_pkt_status_lora_t pkt_status;
+    status = sx126x_get_lora_pkt_status(NULL, &pkt_status);
+    if (status == SX126X_STATUS_OK) {
+      rssi = pkt_status.rssi_pkt_in_dbm;
+      snr = pkt_status.snr_pkt_in_db;
+    }
+
+    // Get RX buffer status
+    sx126x_rx_buffer_status_t rx_buffer_status;
+    status = sx126x_get_rx_buffer_status(NULL, &rx_buffer_status);
+    uint8_t buffer_offset = rx_buffer_status.buffer_start_pointer;
+    payload_len = rx_buffer_status.pld_len_in_bytes;
+
+    // Read payload from buffer
+    status = sx126x_read_buffer(NULL, buffer_offset, payload, payload_len);
+    if (status == SX126X_STATUS_OK) {
+      packet_count++;
+      std::cout << "\n[Packet #" << packet_count << "] Received "
+                << (int)payload_len << " bytes:" << std::endl;
+      std::cout << "  RSSI: " << (int)rssi << " dBm, SNR: " << (int)snr << " dB"
+                << std::endl;
+      std::cout << "  Data: ";
+
+      // Print payload as string (if printable) or hex
+      bool all_printable = true;
+      for (uint8_t i = 0; i < payload_len; i++) {
+        if (payload[i] < 32 || payload[i] > 126) {
+          all_printable = false;
+          break;
+        }
+      }
+
+      if (all_printable) {
+        for (uint8_t i = 0; i < payload_len; i++) {
+          std::cout << (char)payload[i];
+        }
+      } else {
+        for (uint8_t i = 0; i < payload_len; i++) {
+          printf("%02X ", payload[i]);
+        }
+      }
+      std::cout << std::endl;
+    }
+
+    // Clear RX_DONE IRQ
+    sx126x_clear_irq_status(NULL, SX126X_IRQ_RX_DONE);
+  } else if (irq_mask & SX126X_IRQ_TX_DONE) {
+    std::cout << "\nTX_DONE IRQ detected - transmission complete!" << std::endl;
+    sx126x_clear_irq_status(NULL, SX126X_IRQ_TX_DONE);
+
+    // Return to continuous RX mode
+    std::cout << "Returning to continuous RX mode..." << std::endl;
+    set_rf_switch_rx();
+    
+    // Reset the payload length parameter back to maximum (0xFF) for receiving
+    sx126x_pkt_params_lora_t rx_pkt_params = {
+        .preamble_len_in_symb = PREAMBLE_LENGTH,
+        .header_type = SX126X_LORA_PKT_EXPLICIT,
+        .pld_len_in_bytes = 0xFF,
+        .crc_is_on = false,
+        .invert_iq_is_on = false
+    };
+    sx126x_set_lora_pkt_params(NULL, &rx_pkt_params);
+
+    sx126x_set_rx(NULL, 0); // 0 = continuous RX, no timeout
+  } else if (irq_mask & SX126X_IRQ_TIMEOUT) {
+    std::cout << "\nRX_TIMEOUT IRQ - timeout occurred" << std::endl;
+    sx126x_clear_irq_status(NULL, SX126X_IRQ_TIMEOUT);
+  } else if (irq_mask & SX126X_IRQ_CRC_ERROR) {
+    std::cout << "\nCRC_ERROR IRQ - packet corrupted" << std::endl;
+    sx126x_clear_irq_status(NULL, SX126X_IRQ_CRC_ERROR);
+  } else {
+    // Clear all IRQs to be safe
+    sx126x_clear_irq_status(NULL, SX126X_IRQ_ALL);
+  }
+}
 
 // Initialize SPI device
 bool spi_init() {
@@ -342,7 +434,7 @@ bool initialize_receiver(sx126x_mod_params_lora_t *mod_params,
   // }
 
   // Enable receiver
-  receiver_enable();
+  set_rf_switch_rx();
 
   // Start continuous RX mode once during initialization
   std::cout << "Starting continuous RX mode..." << std::endl;
@@ -353,153 +445,80 @@ bool initialize_receiver(sx126x_mod_params_lora_t *mod_params,
     return false;
   }
 
+  // Setup DIO1 interrupt handler
+  std::cout << "Setting up DIO1 interrupt..." << std::endl;
+  if (wiringPiISR(DIO1_PIN, INT_EDGE_RISING, &dio1_interrupt_handler) < 0) {
+    std::cerr << "Failed to setup DIO1 interrupt" << std::endl;
+    return false;
+  }
+
   std::cout << "Continuous RX mode started successfully" << std::endl;
   return true;
 }
 
-// Receive packet function (waits for interrupt in continuous RX mode)
-bool receive_packet(uint8_t *payload, uint8_t *payload_len, int16_t *rssi,
-                    int8_t *snr) {
-  sx126x_status_t status;
-
-  std::cout << "Waiting for packet in continuous RX mode..." << std::endl;
-
-  // Wait for packet reception with timeout (continuous RX is already running)
-  int timeout =
-      RX_TIMEOUT * 1000; // Convert to milliseconds (RX_TIMEOUT is in seconds)
-  while (timeout > 0) {
-    if (dio1_get_irq_status()) {
-      std::cout << "Interrupt detected on DIO1" << std::endl;
-      break;
-    }
-    usleep(1000); // 1ms delay between checks
-    timeout--;
-  }
-
-  // Check for interrupt on DIO1
-  std::cout << timeout << " " << dio1_get_irq_status() << std::endl;
-  if (timeout == 0) {
-    std::cout << "RX timeout - no packet received" << std::endl;
-    return false;
-  }
-
-  // Get IRQ status
-  sx126x_irq_mask_t irq_mask;
-  status = sx126x_get_irq_status(NULL, &irq_mask);
-  if (status != SX126X_STATUS_OK) {
-    std::cerr << "Failed to get IRQ status, status: " << (int)status
-              << std::endl;
-    return false;
-  }
-
-  // Check for RX done or RX error
-  if (irq_mask & SX126X_IRQ_RX_DONE) {
-    std::cout << "RX_DONE IRQ detected - packet received!" << std::endl;
-
-    // Get packet status
-    sx126x_pkt_status_lora_t pkt_status;
-    status = sx126x_get_lora_pkt_status(NULL, &pkt_status);
-    if (status == SX126X_STATUS_OK) {
-      *rssi = pkt_status.rssi_pkt_in_dbm;
-      *snr = pkt_status.snr_pkt_in_db;
-      std::cout << "  RSSI: " << (int)*rssi << " dBm" << std::endl;
-      std::cout << "  SNR: " << (int)*snr << " dB" << std::endl;
-    }
-
-    // Get RX buffer status
-    sx126x_rx_buffer_status_t rx_buffer_status;
-    status = sx126x_get_rx_buffer_status(NULL, &rx_buffer_status);
-    uint8_t buffer_offset = rx_buffer_status.buffer_start_pointer;
-    uint8_t packet_length = rx_buffer_status.pld_len_in_bytes;
-    if (status != SX126X_STATUS_OK) {
-      std::cerr << "Failed to get RX buffer status, status: " << (int)status
-                << std::endl;
-      return false;
-    }
-
-    *payload_len = packet_length;
-    std::cout << "  Packet length: " << (int)packet_length << " bytes"
-              << std::endl;
-
-    // Read payload from buffer
-    status = sx126x_read_buffer(NULL, buffer_offset, payload, packet_length);
-    if (status != SX126X_STATUS_OK) {
-      std::cerr << "Failed to read RX buffer, status: " << (int)status
-                << std::endl;
-      return false;
-    }
-
-    // Clear RX_DONE IRQ to prepare for next packet
-    sx126x_clear_irq_status(NULL, SX126X_IRQ_RX_DONE);
-
-    return true;
-  } else if (irq_mask & SX126X_IRQ_TIMEOUT) {
-    std::cout << "RX_TIMEOUT IRQ - timeout occurred" << std::endl;
-    sx126x_clear_irq_status(NULL, SX126X_IRQ_TIMEOUT);
-    return false;
-  } else if (irq_mask & SX126X_IRQ_CRC_ERROR) {
-    std::cout << "CRC_ERROR IRQ - packet corrupted" << std::endl;
-    sx126x_clear_irq_status(NULL, SX126X_IRQ_CRC_ERROR);
-    return false;
-  } else {
-    std::cout << "Unknown IRQ: 0x" << std::hex << (int)irq_mask << std::dec
-              << std::endl;
-    // Clear all IRQs to be safe
-    sx126x_clear_irq_status(NULL, SX126X_IRQ_ALL);
-    return false;
-  }
-}
-
-// Receiver loop
-void receiver_loop(sx126x_mod_params_lora_t *mod_params,
-                   sx126x_pkt_params_lora_t *pkt_params) {
-  std::cout << "\n-- LoRa Receiver --\n" << std::endl;
+// Transceiver loop
+void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
+                      sx126x_pkt_params_lora_t *pkt_params) {
+  std::cout << "\n-- LoRa Transceiver --\n" << std::endl;
 
   if (!initialize_receiver(mod_params, pkt_params)) {
     std::cerr << "Failed to initialize receiver mode" << std::endl;
     return;
   }
 
-  uint8_t payload[256];
-  uint8_t payload_len;
-  int16_t rssi;
-  int8_t snr;
-  uint32_t packet_count = 0;
+  std::cout << "Transceiver initialized. Listening for packets via interrupt..."
+            << std::endl;
 
-  std::cout << "Receiver initialized. Listening for packets..." << std::endl;
+  const char *message = "HeLoRa Transceiver!";
+  uint8_t counter = 0;
+  sx126x_status_t status;
 
   while (true) {
-    if (receive_packet(payload, &payload_len, &rssi, &snr)) {
-      packet_count++;
-      std::cout << "\n[Packet #" << packet_count << "] Received "
-                << (int)payload_len << " bytes:" << std::endl;
-      std::cout << "  RSSI: " << (int)rssi << " dBm, SNR: " << (int)snr << " dB"
-                << std::endl;
-      std::cout << "  Data: ";
+    // Wait for 5 seconds (meanwhile RX is active and handled by interrupt)
+    sleep(5);
 
-      // Print payload as string (if printable) or hex
-      bool all_printable = true;
-      for (uint8_t i = 0; i < payload_len; i++) {
-        if (payload[i] < 32 || payload[i] > 126) {
-          all_printable = false;
-          break;
-        }
-      }
+    // Prepare payload for transmission
+    uint8_t payload[256];
+    char temp_buffer[256];
+    // Format message and counter as characters into temp_buffer
+    snprintf(temp_buffer, sizeof(temp_buffer), "%s %d", message, counter);
+    uint8_t msg_len = strlen(temp_buffer);
 
-      if (all_printable) {
-        for (uint8_t i = 0; i < payload_len; i++) {
-          std::cout << (char)payload[i];
-        }
-      } else {
-        for (uint8_t i = 0; i < payload_len; i++) {
-          printf("%02X ", payload[i]);
-        }
-      }
-      std::cout << std::endl;
+    for (uint8_t i = 0; i < msg_len; i++) {
+      payload[i] = (uint8_t)temp_buffer[i];
     }
 
-    // Brief delay before next RX check (continuous RX is running in background)
-    usleep(100000); // 100ms
+    std::cout << "\n--- Starting Transmission ---" << std::endl;
+    std::cout << "Transmitting: " << temp_buffer << std::endl;
+
+    // Switch to TX mode
+    set_rf_switch_tx();
+
+    // Write payload to TX buffer
+    status = sx126x_write_buffer(NULL, 0, payload, msg_len);
+    if (status != SX126X_STATUS_OK) {
+      std::cerr << "Failed to write payload to buffer" << std::endl;
+      // Re-enable RX if write failed
+      set_rf_switch_rx();
+      sx126x_set_rx(NULL, 0);
+      continue;
+    }
+
+    // Set the hardware packet parameters to transmit EXACTLY msg_len bytes
+    pkt_params->pld_len_in_bytes = msg_len;
+    sx126x_set_lora_pkt_params(NULL, pkt_params);
+
+    // Start transmission (interrupt will handle TX_DONE and revert to RX)
+    status = sx126x_set_tx(NULL, 0);
+    if (status != SX126X_STATUS_OK) {
+      std::cerr << "Failed to start transmission" << std::endl;
+      // Re-enable RX if start TX failed
+      set_rf_switch_rx();
+      sx126x_set_rx(NULL, 0);
+      continue;
+    }
+
+    counter = (counter + 1) % 256;
   }
 }
 
@@ -1299,74 +1318,12 @@ int main(int argc, char *argv[]) {
   read_all_registers();
 
   // ================================
-  // Select TX or RX Mode
+  // Transceiver Operation
   // ================================
-
-  if (receiver_mode) {
-    receiver_loop(&mod_params, &pkt_params);
-  } else {
-    // Enable transmitter (set DIO4 high for RF module)
-    transmit_enable();
-
-    // ================================
-    // Transmit Loop
-    // ================================
-    std::cout << "\n-- LoRa Transmitter --\n" << std::endl;
-
-    const char *message = "HeLoRa World!";
-    uint8_t counter = 0;
-
-    while (true) {
-      // Prepare payload: message + counter byte
-      uint8_t payload[16];
-      uint8_t msg_len = strlen(message);
-
-      // Copy message to payload
-      for (uint8_t i = 0; i < msg_len; i++) {
-        payload[i] = (uint8_t)message[i];
-      }
-      // Add counter
-      payload[msg_len] = counter;
-
-      // Send packet using proper SX126X API
-      // First write payload to buffer, then start transmission
-      std::cout << "Transmitting: " << message << " " << (int)counter
-                << std::endl;
-
-      // Write payload to TX buffer
-      status = sx126x_write_buffer(NULL, 0, payload, msg_len + 1);
-      if (status != SX126X_STATUS_OK) {
-        std::cerr << "Failed to write payload to buffer, status: "
-                  << (int)status << std::endl;
-        continue;
-      }
-
-      // Start transmission with timeout (0 = no timeout, continuous until done)
-      status = sx126x_set_tx(NULL, 0);
-      if (status != SX126X_STATUS_OK) {
-        std::cerr << "Failed to start transmission, status: " << (int)status
-                  << std::endl;
-        continue;
-      }
-
-      // Wait for transmission to complete (check TX_DONE interrupt or just
-      // delay)
-      usleep(100000); // 100ms delay to allow transmission
-
-      // Print transmission info
-      std::cout << "Transmission complete" << std::endl;
-
-      // Increment counter
-      counter = (counter + 1) % 256;
-
-      // Don't overload the RF module - 5 second delay between transmissions
-      std::cout << "Waiting 5 seconds before next transmission..." << std::endl;
-      sleep(5);
-    }
-  }
+  transceiver_loop(&mod_params, &pkt_params);
 
   // Cleanup (unreachable in current loop, but good practice)
-  transmit_disable();
+  set_rf_switch_rx();
   if (spi_fd != -1) {
     close(spi_fd);
     spi_fd = -1;
