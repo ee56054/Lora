@@ -18,8 +18,14 @@ FetchContent_MakeAvailable(sx126x_driver)
 # Add executable
 add_executable(lora_app src/main.cpp)
 
-# Include directories for the driver
-target_include_directories(lora_app PRIVATE ${sx126x_driver_SOURCE_DIR})
+# Include directories for the driver and wiringOP
+target_include_directories(lora_app PRIVATE 
+    ${sx126x_driver_SOURCE_DIR}
+    /usr/local/include
+)
 
-# Link the sx126x_driver library
-target_link_libraries(lora_app sx126x_driver)
+# Link the sx126x_driver and wiringOP libraries
+target_link_libraries(lora_app 
+    sx126x_driver
+    wiringPi
+)

@@ -1,20 +1,27 @@
 # Lora CMake Project with SX126X Driver
 
-A CMake project for Linux that integrates the SX126X LoRa transceiver driver with SPI communication.
+A CMake project for Linux that integrates the SX126X LoRa transceiver driver with SPI communication and GPIO control using wiringOP library.
 
 ## Features
 
 - SX126X driver integration from [Lora-net/sx126x_driver](https://github.com/Lora-net/sx126x_driver)
 - Linux SPI communication using spidev interface
-- GPIO control for reset functionality
+- GPIO control using wiringOP library for reset, busy, and interrupt pins
 - Hardware Abstraction Layer (HAL) implementation
+- Optimized for Orange Pi Zero 2W and other wiringOP-supported boards
 
 ## Hardware Requirements
 
-- Raspberry Pi or similar Linux SBC with SPI interface
+- Linux system with SPI and GPIO support
 - SX126X LoRa module connected via SPI
-- GPIO pin 25 connected to SX126X reset pin (configurable in main.cpp)
-- GPIO pin 20 connected to SX126X busy pin (configurable in main.cpp)
+- GPIO connections as configured in main.cpp
+
+### GPIO Pin Configuration
+
+- **GPIO 18**: SX126X reset pin (output, wiringOP)
+- **GPIO 20**: SX126X busy pin (input, wiringOP)
+- **GPIO 16**: SX126X DIO1 interrupt pin (input, wiringOP)
+- **GPIO 6**: SX126X DIO4 transmit enable pin (output, wiringOP)
 
 ### SPI Connection
 
@@ -56,19 +63,23 @@ Edit the following constants in `src/main.cpp`:
 - `SPI_BITS_PER_WORD`: Bits per word (default: 8)
 
 ### GPIO Settings
-- `RESET_PIN`: GPIO pin number for reset (default: 25)
+- `RESET_PIN`: GPIO pin number for reset (default: 18)
 - `BUSY_PIN`: GPIO pin number for busy status (default: 20)
+- `DIO1_PIN`: GPIO pin number for DIO1 interrupt (default: 16)
+- `DIO4_PIN`: GPIO pin number for DIO4 transmit enable (default: 6)
 
 ## Dependencies
 
-- CMake 3.25 or higher
+- CMake 3.22 or higher
 - C++11 compatible compiler
 - Linux kernel with SPI and GPIO support
 - spidev kernel module loaded
+- wiringOP library installed in `/usr/local` (for Orange Pi and other supported boards)
 
 ## Notes
 
-- The HAL functions use sysfs for GPIO control. For production use, consider using libgpiod for better performance.
+- The HAL functions use wiringOP library for GPIO control, which provides better performance than sysfs.
+- This project is optimized for Orange Pi Zero 2W but should work on any Linux board with wiringOP support.
 - Error handling is basic; enhance as needed for your application.
 - The driver initialization includes a basic standby mode test.
    ```
