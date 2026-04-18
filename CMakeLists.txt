@@ -16,7 +16,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(sx126x_driver)
 
 # Add executable
-add_executable(lora_app src/main.cpp)
+add_executable(lora_app src/main.cpp src/hal.cpp src/lora_app.cpp)
 
 # Include directories for the driver and wiringOP
 target_include_directories(lora_app PRIVATE 
