@@ -1,9 +1,10 @@
+#include "hal.h"
 #include "sx126x.h"
 #include "sx126x_hal.h"
-#include "hal.h"
 #include <cstring>
 #include <iostream>
 #include <unistd.h>
+
 
 // LoRa configuration constants
 const uint32_t FREQUENCY = 915000000; // 915 MHz in Hz
@@ -88,18 +89,17 @@ void dio1_interrupt_handler(void) {
     // Return to continuous RX mode
     std::cout << "Returning to continuous RX mode..." << std::endl;
     set_rf_switch_rx();
-    
+
     // Reset the payload length parameter back to maximum (0xFF) for receiving
     sx126x_pkt_params_lora_t rx_pkt_params = {
         .preamble_len_in_symb = PREAMBLE_LENGTH,
         .header_type = SX126X_LORA_PKT_EXPLICIT,
         .pld_len_in_bytes = 0xFF,
         .crc_is_on = false,
-        .invert_iq_is_on = false
-    };
+        .invert_iq_is_on = false};
     sx126x_set_lora_pkt_params(NULL, &rx_pkt_params);
 
-    sx126x_set_rx(NULL, 0); // 0 = continuous RX, no timeout
+    sx126x_set_rx_with_timeout_in_rtc_step(NULL, SX126X_RX_CONTINUOUS); // true continuous RX
   } else if (irq_mask & SX126X_IRQ_TIMEOUT) {
     std::cout << "\nRX_TIMEOUT IRQ - timeout occurred" << std::endl;
     sx126x_clear_irq_status(NULL, SX126X_IRQ_TIMEOUT);
@@ -110,6 +110,9 @@ void dio1_interrupt_handler(void) {
     // Clear all IRQs to be safe
     sx126x_clear_irq_status(NULL, SX126X_IRQ_ALL);
   }
+
+  std::cout << "interrupt handler finished: " << packet_count << " packets"
+            << std::endl;
 }
 
 // Initialize receiver mode
@@ -168,7 +171,7 @@ bool initialize_receiver(sx126x_mod_params_lora_t *mod_params,
 
   // Start continuous RX mode once during initialization
   std::cout << "Starting continuous RX mode..." << std::endl;
-  status = sx126x_set_rx(NULL, 0); // 0 = continuous RX, no timeout
+  status = sx126x_set_rx_with_timeout_in_rtc_step(NULL, SX126X_RX_CONTINUOUS); // true continuous RX
   if (status != SX126X_STATUS_OK) {
     std::cerr << "Failed to start continuous RX, status: " << (int)status
               << std::endl;
@@ -230,7 +233,7 @@ void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
       std::cerr << "Failed to write payload to buffer" << std::endl;
       // Re-enable RX if write failed
       set_rf_switch_rx();
-      sx126x_set_rx(NULL, 0);
+      sx126x_set_rx_with_timeout_in_rtc_step(NULL, SX126X_RX_CONTINUOUS);
       continue;
     }
 
@@ -244,7 +247,7 @@ void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
       std::cerr << "Failed to start transmission" << std::endl;
       // Re-enable RX if start TX failed
       set_rf_switch_rx();
-      sx126x_set_rx(NULL, 0);
+      sx126x_set_rx_with_timeout_in_rtc_step(NULL, SX126X_RX_CONTINUOUS);
       continue;
     }
 
