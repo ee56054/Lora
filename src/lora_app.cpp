@@ -15,6 +15,11 @@ const sx126x_lora_cr_t CODING_RATE = SX126X_LORA_CR_4_6;
 const uint16_t PREAMBLE_LENGTH = 8; // Preamble length in symbols
 const uint32_t RX_TIMEOUT = 5000;   // RX timeout in milliseconds (5 seconds)
 
+// Globals for echo server
+volatile bool message_received = false;
+volatile uint8_t rx_payload[256];
+volatile uint8_t rx_payload_len = 0;
+
 // Interrupt handler for DIO1 - processes packets directly
 void dio1_interrupt_handler(void) {
   uint8_t payload[256];
@@ -78,6 +83,11 @@ void dio1_interrupt_handler(void) {
         }
       }
       std::cout << std::endl;
+
+      // Copy to global buffer to trigger a reply
+      memcpy((void *)rx_payload, payload, payload_len);
+      rx_payload_len = payload_len;
+      message_received = true;
     }
 
     // Clear RX_DONE IRQ
@@ -189,10 +199,44 @@ bool initialize_receiver(sx126x_mod_params_lora_t *mod_params,
   return true;
 }
 
+// Transmit a packet
+bool transmit(const uint8_t *payload, uint8_t size, sx126x_pkt_params_lora_t *pkt_params) {
+  sx126x_status_t status;
+
+  // Switch to TX mode
+  set_rf_switch_tx();
+
+  // Write payload to TX buffer
+  status = sx126x_write_buffer(NULL, 0, payload, size);
+  if (status != SX126X_STATUS_OK) {
+    std::cerr << "Failed to write payload to buffer" << std::endl;
+    // Re-enable RX if write failed
+    set_rf_switch_rx();
+    sx126x_set_rx_with_timeout_in_rtc_step(NULL, SX126X_RX_CONTINUOUS);
+    return false;
+  }
+
+  // Set the hardware packet parameters to transmit EXACTLY size bytes
+  pkt_params->pld_len_in_bytes = size;
+  sx126x_set_lora_pkt_params(NULL, pkt_params);
+
+  // Start transmission (interrupt will handle TX_DONE and revert to RX)
+  status = sx126x_set_tx(NULL, 0);
+  if (status != SX126X_STATUS_OK) {
+    std::cerr << "Failed to start transmission" << std::endl;
+    // Re-enable RX if start TX failed
+    set_rf_switch_rx();
+    sx126x_set_rx_with_timeout_in_rtc_step(NULL, SX126X_RX_CONTINUOUS);
+    return false;
+  }
+
+  return true;
+}
+
 // Transceiver loop
 void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
                       sx126x_pkt_params_lora_t *pkt_params) {
-  std::cout << "\n-- LoRa Transceiver --\n" << std::endl;
+  std::cout << "\n-- LoRa Transceiver (Echo Server) --\n" << std::endl;
 
   if (!initialize_receiver(mod_params, pkt_params)) {
     std::cerr << "Failed to initialize receiver mode" << std::endl;
@@ -202,56 +246,32 @@ void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
   std::cout << "Transceiver initialized. Listening for packets via interrupt..."
             << std::endl;
 
-  const char *message = "HeLoRa Transceiver!";
-  uint8_t counter = 0;
-  sx126x_status_t status;
-
   while (true) {
-    // Wait for 5 seconds (meanwhile RX is active and handled by interrupt)
-    sleep(5);
+    if (message_received) {
+      message_received = false;
 
-    // Prepare payload for transmission
-    uint8_t payload[256];
-    char temp_buffer[256];
-    // Format message and counter as characters into temp_buffer
-    snprintf(temp_buffer, sizeof(temp_buffer), "%s %d", message, counter);
-    uint8_t msg_len = strlen(temp_buffer);
+      std::cout << "\n--- Replying to Message ---" << std::endl;
 
-    for (uint8_t i = 0; i < msg_len; i++) {
-      payload[i] = (uint8_t)temp_buffer[i];
+      // Create a reply payload
+      uint8_t reply_payload[256];
+      const char *prefix = "Echo: ";
+      uint8_t prefix_len = strlen(prefix);
+
+      memcpy(reply_payload, prefix, prefix_len);
+
+      uint8_t copy_len = rx_payload_len;
+      if (prefix_len + copy_len > 255) {
+        copy_len = 255 - prefix_len;
+      }
+      memcpy(reply_payload + prefix_len, (void *)rx_payload, copy_len);
+      uint8_t reply_len = prefix_len + copy_len;
+
+      if (!transmit(reply_payload, reply_len, pkt_params)) {
+        std::cerr << "Failed to send reply!" << std::endl;
+      }
     }
 
-    std::cout << "\n--- Starting Transmission ---" << std::endl;
-    std::cout << "Transmitting: " << temp_buffer << std::endl;
-
-    // Switch to TX mode
-    set_rf_switch_tx();
-
-    // Write payload to TX buffer
-    status = sx126x_write_buffer(NULL, 0, payload, msg_len);
-    if (status != SX126X_STATUS_OK) {
-      std::cerr << "Failed to write payload to buffer" << std::endl;
-      // Re-enable RX if write failed
-      set_rf_switch_rx();
-      sx126x_set_rx_with_timeout_in_rtc_step(NULL, SX126X_RX_CONTINUOUS);
-      continue;
-    }
-
-    // Set the hardware packet parameters to transmit EXACTLY msg_len bytes
-    pkt_params->pld_len_in_bytes = msg_len;
-    sx126x_set_lora_pkt_params(NULL, pkt_params);
-
-    // Start transmission (interrupt will handle TX_DONE and revert to RX)
-    status = sx126x_set_tx(NULL, 0);
-    if (status != SX126X_STATUS_OK) {
-      std::cerr << "Failed to start transmission" << std::endl;
-      // Re-enable RX if start TX failed
-      set_rf_switch_rx();
-      sx126x_set_rx_with_timeout_in_rtc_step(NULL, SX126X_RX_CONTINUOUS);
-      continue;
-    }
-
-    counter = (counter + 1) % 256;
+    usleep(100000); // 100ms sleep to avoid pegging CPU
   }
 }
 
