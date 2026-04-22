@@ -5,7 +5,6 @@
 #include <iostream>
 #include <unistd.h>
 
-
 // LoRa configuration constants
 const uint32_t FREQUENCY = 915000000; // 915 MHz in Hz
 const int8_t TX_POWER = 22;           // +22 dBm
@@ -16,9 +15,16 @@ const uint16_t PREAMBLE_LENGTH = 8; // Preamble length in symbols
 const uint32_t RX_TIMEOUT = 5000;   // RX timeout in milliseconds (5 seconds)
 
 // Globals for echo server
-volatile bool message_received = false;
-volatile uint8_t rx_payload[256];
-volatile uint8_t rx_payload_len = 0;
+#include <mutex>
+#include <queue>
+#include <vector>
+
+struct RxMessage {
+  std::vector<uint8_t> data;
+};
+
+std::queue<RxMessage> message_queue;
+std::mutex queue_mutex;
 
 // Interrupt handler for DIO1 - processes packets directly
 void dio1_interrupt_handler(void) {
@@ -84,10 +90,13 @@ void dio1_interrupt_handler(void) {
       }
       std::cout << std::endl;
 
-      // Copy to global buffer to trigger a reply
-      memcpy((void *)rx_payload, payload, payload_len);
-      rx_payload_len = payload_len;
-      message_received = true;
+      // Copy to message queue to trigger a reply
+      {
+        std::lock_guard<std::mutex> lock(queue_mutex);
+        RxMessage msg;
+        msg.data.assign(payload, payload + payload_len);
+        message_queue.push(msg);
+      }
     }
 
     // Clear RX_DONE IRQ
@@ -109,7 +118,8 @@ void dio1_interrupt_handler(void) {
         .invert_iq_is_on = false};
     sx126x_set_lora_pkt_params(NULL, &rx_pkt_params);
 
-    sx126x_set_rx_with_timeout_in_rtc_step(NULL, SX126X_RX_CONTINUOUS); // true continuous RX
+    sx126x_set_rx_with_timeout_in_rtc_step(
+        NULL, SX126X_RX_CONTINUOUS); // true continuous RX
   } else if (irq_mask & SX126X_IRQ_TIMEOUT) {
     std::cout << "\nRX_TIMEOUT IRQ - timeout occurred" << std::endl;
     sx126x_clear_irq_status(NULL, SX126X_IRQ_TIMEOUT);
@@ -181,7 +191,8 @@ bool initialize_receiver(sx126x_mod_params_lora_t *mod_params,
 
   // Start continuous RX mode once during initialization
   std::cout << "Starting continuous RX mode..." << std::endl;
-  status = sx126x_set_rx_with_timeout_in_rtc_step(NULL, SX126X_RX_CONTINUOUS); // true continuous RX
+  status = sx126x_set_rx_with_timeout_in_rtc_step(
+      NULL, SX126X_RX_CONTINUOUS); // true continuous RX
   if (status != SX126X_STATUS_OK) {
     std::cerr << "Failed to start continuous RX, status: " << (int)status
               << std::endl;
@@ -200,12 +211,12 @@ bool initialize_receiver(sx126x_mod_params_lora_t *mod_params,
 }
 
 // Transmit a packet
-bool transmit(const uint8_t *payload, uint8_t size, sx126x_pkt_params_lora_t *pkt_params) {
+bool transmit(const uint8_t *payload, uint8_t size,
+              sx126x_pkt_params_lora_t *pkt_params) {
   sx126x_status_t status;
 
   // Switch to TX mode
   set_rf_switch_tx();
-
   // Write payload to TX buffer
   status = sx126x_write_buffer(NULL, 0, payload, size);
   if (status != SX126X_STATUS_OK) {
@@ -221,7 +232,9 @@ bool transmit(const uint8_t *payload, uint8_t size, sx126x_pkt_params_lora_t *pk
   sx126x_set_lora_pkt_params(NULL, pkt_params);
 
   // Start transmission (interrupt will handle TX_DONE and revert to RX)
+  std::cout << "tx: " << payload << std::endl;
   status = sx126x_set_tx(NULL, 0);
+  std::cout << "tx done: " << payload << std::endl;
   if (status != SX126X_STATUS_OK) {
     std::cerr << "Failed to start transmission" << std::endl;
     // Re-enable RX if start TX failed
@@ -247,9 +260,19 @@ void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
             << std::endl;
 
   while (true) {
-    if (message_received) {
-      message_received = false;
+    bool has_message = false;
+    RxMessage rx_msg;
 
+    {
+      std::lock_guard<std::mutex> lock(queue_mutex);
+      if (!message_queue.empty()) {
+        rx_msg = message_queue.front();
+        message_queue.pop();
+        has_message = true;
+      }
+    }
+
+    if (has_message && !sx126x_is_busy()) {
       std::cout << "\n--- Replying to Message ---" << std::endl;
 
       // Create a reply payload
@@ -259,11 +282,11 @@ void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
 
       memcpy(reply_payload, prefix, prefix_len);
 
-      uint8_t copy_len = rx_payload_len;
+      uint8_t copy_len = rx_msg.data.size();
       if (prefix_len + copy_len > 255) {
         copy_len = 255 - prefix_len;
       }
-      memcpy(reply_payload + prefix_len, (void *)rx_payload, copy_len);
+      memcpy(reply_payload + prefix_len, rx_msg.data.data(), copy_len);
       uint8_t reply_len = prefix_len + copy_len;
 
       if (!transmit(reply_payload, reply_len, pkt_params)) {
