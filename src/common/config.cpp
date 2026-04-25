@@ -3,6 +3,12 @@
 #include <iostream>
 #include <unordered_map>
 
+#ifdef PLATFORM_STM32
+#include <ArduinoJson.h>
+#else
+#include <nlohmann/json.hpp>
+#endif
+
 LoraConfig g_config;
 
 // --- String mapping helpers ---
@@ -88,6 +94,25 @@ bool LoraConfig::load_from_file(const std::string& filepath) {
         return false;
     }
 
+#ifdef PLATFORM_STM32
+    StaticJsonDocument<512> doc;
+    DeserializationError error = deserializeJson(doc, file);
+
+    if (error) {
+        std::cerr << "JSON parsing error: " << error.c_str() << std::endl;
+        return false;
+    }
+
+    if (doc.containsKey("frequency")) frequency = doc["frequency"].as<uint32_t>();
+    if (doc.containsKey("tx_power")) tx_power = doc["tx_power"].as<int8_t>();
+    if (doc.containsKey("spreading_factor")) spreading_factor = str_to_sf(doc["spreading_factor"].as<std::string>());
+    if (doc.containsKey("bandwidth")) bandwidth = str_to_bw(doc["bandwidth"].as<std::string>());
+    if (doc.containsKey("coding_rate")) coding_rate = str_to_cr(doc["coding_rate"].as<std::string>());
+    if (doc.containsKey("preamble_length")) preamble_length = doc["preamble_length"].as<uint16_t>();
+    if (doc.containsKey("rx_timeout")) rx_timeout = doc["rx_timeout"].as<uint32_t>();
+
+    return true;
+#else
     try {
         nlohmann::json j;
         file >> j;
@@ -105,9 +130,29 @@ bool LoraConfig::load_from_file(const std::string& filepath) {
         std::cerr << "JSON parsing error: " << e.what() << std::endl;
         return false;
     }
+#endif
 }
 
 bool LoraConfig::save_to_file(const std::string& filepath) const {
+    std::ofstream file(filepath);
+    if (!file.is_open()) {
+        std::cerr << "Failed to open config file for writing: " << filepath << std::endl;
+        return false;
+    }
+
+#ifdef PLATFORM_STM32
+    StaticJsonDocument<512> doc;
+    doc["frequency"] = frequency;
+    doc["tx_power"] = tx_power;
+    doc["spreading_factor"] = sf_to_str(spreading_factor);
+    doc["bandwidth"] = bw_to_str(bandwidth);
+    doc["coding_rate"] = cr_to_str(coding_rate);
+    doc["preamble_length"] = preamble_length;
+    doc["rx_timeout"] = rx_timeout;
+
+    serializeJsonPretty(doc, file);
+    return true;
+#else
     nlohmann::json j;
     j["frequency"] = frequency;
     j["tx_power"] = tx_power;
@@ -117,12 +162,7 @@ bool LoraConfig::save_to_file(const std::string& filepath) const {
     j["preamble_length"] = preamble_length;
     j["rx_timeout"] = rx_timeout;
 
-    std::ofstream file(filepath);
-    if (!file.is_open()) {
-        std::cerr << "Failed to open config file for writing: " << filepath << std::endl;
-        return false;
-    }
-
     file << j.dump(4); // 4 spaces indent
     return true;
+#endif
 }

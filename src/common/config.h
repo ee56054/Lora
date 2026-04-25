@@ -3,7 +3,6 @@
 
 #include <string>
 #include <cstdint>
-#include <nlohmann/json.hpp>
 #include "sx126x.h"
 
 struct LoraConfig {
