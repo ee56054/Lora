@@ -19,18 +19,50 @@ FetchContent_Declare(json
 
 FetchContent_MakeAvailable(sx126x_driver json)
 
-# Add executable
-add_executable(lora_app src/main.cpp src/hal.cpp src/lora_app.cpp src/config.cpp)
+# Platform selection
+set(PLATFORM "ORANGEPI" CACHE STRING "Target platform: ORANGEPI or STM32")
+set_property(CACHE PLATFORM PROPERTY STRINGS ORANGEPI STM32)
 
-# Include directories for the driver and wiringOP
-target_include_directories(lora_app PRIVATE 
-    ${sx126x_driver_SOURCE_DIR}
-    /usr/local/include
-)
+if(PLATFORM STREQUAL "ORANGEPI")
+    # Add executable for Orange Pi
+    add_executable(lora_app main.cpp src/platform_opi/hal_orangepi.cpp src/common/lora_app.cpp src/common/config.cpp)
 
-# Link the sx126x_driver and wiringOP libraries
-target_link_libraries(lora_app 
-    sx126x_driver
-    wiringPi
-    nlohmann_json::nlohmann_json
-)
+    # Include directories for the driver and wiringOP
+    target_include_directories(lora_app PRIVATE 
+        ${sx126x_driver_SOURCE_DIR}
+        /usr/local/include
+        src/common
+    )
+
+    # Link the sx126x_driver and wiringOP libraries
+    target_link_libraries(lora_app 
+        sx126x_driver
+        wiringPi
+        nlohmann_json::nlohmann_json
+    )
+    
+    target_compile_definitions(lora_app PRIVATE PLATFORM_ORANGEPI)
+
+elseif(PLATFORM STREQUAL "STM32")
+    # Note: Cross-compiling for STM32 requires an appropriate toolchain file
+    # and STM32 HAL libraries. This is a basic template structure.
+    
+    # Add executable for STM32
+    add_executable(lora_app main.cpp src/platform_stm32/hal_stm32.cpp src/common/lora_app.cpp src/common/config.cpp)
+
+    # Include directories for the driver
+    target_include_directories(lora_app PRIVATE 
+        ${sx126x_driver_SOURCE_DIR}
+        src/common
+        # Add STM32 specific include directories here
+    )
+
+    # Link the driver and JSON library
+    target_link_libraries(lora_app 
+        sx126x_driver
+        nlohmann_json::nlohmann_json
+        # Add STM32 HAL libraries here
+    )
+    
+    target_compile_definitions(lora_app PRIVATE PLATFORM_STM32)
+endif()
