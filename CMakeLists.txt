@@ -13,15 +13,22 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/Lora-net/sx126x_driver.git
 )
 
-FetchContent_Declare(json
-  URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
-)
-
-FetchContent_MakeAvailable(sx126x_driver json)
-
 # Platform selection
 set(PLATFORM "ORANGEPI" CACHE STRING "Target platform: ORANGEPI or STM32")
 set_property(CACHE PLATFORM PROPERTY STRINGS ORANGEPI STM32)
+
+if(PLATFORM STREQUAL "ORANGEPI")
+    FetchContent_Declare(json
+      URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+    )
+    FetchContent_MakeAvailable(sx126x_driver json)
+elseif(PLATFORM STREQUAL "STM32")
+    FetchContent_Declare(arduinojson
+      GIT_REPOSITORY https://github.com/bblanchon/ArduinoJson.git
+      GIT_TAG v6.21.3
+    )
+    FetchContent_MakeAvailable(sx126x_driver arduinojson)
+endif()
 
 if(PLATFORM STREQUAL "ORANGEPI")
     # Add executable for Orange Pi
@@ -65,7 +72,7 @@ elseif(PLATFORM STREQUAL "STM32")
     # Link the driver and JSON library
     target_link_libraries(lora_app 
         sx126x_driver
-        nlohmann_json::nlohmann_json
+        ArduinoJson
     )
     
     target_compile_definitions(lora_app PRIVATE PLATFORM_STM32)
