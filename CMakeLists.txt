@@ -13,10 +13,14 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/Lora-net/sx126x_driver.git
 )
 
-FetchContent_MakeAvailable(sx126x_driver)
+FetchContent_Declare(json
+  URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+)
+
+FetchContent_MakeAvailable(sx126x_driver json)
 
 # Add executable
-add_executable(lora_app src/main.cpp src/hal.cpp src/lora_app.cpp)
+add_executable(lora_app src/main.cpp src/hal.cpp src/lora_app.cpp src/config.cpp)
 
 # Include directories for the driver and wiringOP
 target_include_directories(lora_app PRIVATE 
@@ -28,4 +32,5 @@ target_include_directories(lora_app PRIVATE
 target_link_libraries(lora_app 
     sx126x_driver
     wiringPi
+    nlohmann_json::nlohmann_json
 )

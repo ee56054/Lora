@@ -4,15 +4,16 @@
 #include <cstring>
 #include <iostream>
 #include <unistd.h>
+#include "config.h"
 
 // LoRa configuration constants
-const uint32_t FREQUENCY = 915000000; // 915 MHz in Hz
-const int8_t TX_POWER = 22;           // +22 dBm
-const sx126x_lora_sf_t SPREADING_FACTOR = SX126X_LORA_SF9;
-const sx126x_lora_bw_t BANDWIDTH = SX126X_LORA_BW_125;
-const sx126x_lora_cr_t CODING_RATE = SX126X_LORA_CR_4_6;
-const uint16_t PREAMBLE_LENGTH = 8; // Preamble length in symbols
-const uint32_t RX_TIMEOUT = 5000;   // RX timeout in milliseconds (5 seconds)
+#define FREQUENCY g_config.frequency
+#define TX_POWER g_config.tx_power
+#define SPREADING_FACTOR g_config.spreading_factor
+#define BANDWIDTH g_config.bandwidth
+#define CODING_RATE g_config.coding_rate
+#define PREAMBLE_LENGTH g_config.preamble_length
+#define RX_TIMEOUT g_config.rx_timeout
 
 // Globals for echo server
 #include <mutex>
@@ -906,6 +907,11 @@ void read_all_registers() {
 #include "lora_app.h"
 
 int run_lora_app() {
+
+  if (!g_config.load_from_file("config.json")) {
+      std::cout << "Config file not found or invalid, saving defaults to config.json..." << std::endl;
+      g_config.save_to_file("config.json");
+  }
 
   std::cout << "Hello, World from CMake project with SX126X driver!"
             << std::endl;
