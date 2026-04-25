@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LinkerData xmlns:xs="http://www.w3.org/2001/XMLSchema-instance" schemaVersion="1.0" xs:noNamespaceSchemaLocation="../xsd/LinkerData.xsd">
+  <projects>
+    <project name="platform_stm32">
+      <regions>
+        <region access="xrw" isDefaultReg="true" name="RAM" size="20" start="0x20000000" />
+        <region access="rx" isDefaultReg="true" name="FLASH" size="64" start="0x8000000" />
+      </regions>
+      <sections>
+        <section name=".intvec" region="FLASH" type="vtable" />
+        <section name=".text" region="FLASH" type="rocode" />
+        <section name=".rodata" region="FLASH" type="rodata" />
+        <section load_from="FLASH" name=".data" region="RAM" type="data" />
+        <section name=".bss" region="RAM" type="bss" />
+        <section initialize="off" name=".noinit" region="RAM" type="data" />
+        <section name=".heap" region="RAM" size="0x200" type="heap" />
+        <section name=".stack" region="RAM" size="0x400" type="stack" />
+        <!-- ... -->
+        <section includes="*(.ccmram_bss); *(.ccmram_bss*)" load_from="FLASH" name=".ccmram_data" region="" type="data" />
+        <section includes="*(.ccmram_data); *(.ccmram_data*)" name=".ccmram_bss" region="" type="bss" />
+      </sections>
+    </project>
+  </projects>
+</LinkerData>
+
