@@ -44,24 +44,28 @@ if(PLATFORM STREQUAL "ORANGEPI")
     target_compile_definitions(lora_app PRIVATE PLATFORM_ORANGEPI)
 
 elseif(PLATFORM STREQUAL "STM32")
-    # Note: Cross-compiling for STM32 requires an appropriate toolchain file
-    # and STM32 HAL libraries. This is a basic template structure.
+    # Enable CMake support for ASM and C languages (required by CubeMX)
+    enable_language(C ASM)
+
+    # Tell STM32CubeMX cmake files that our target is lora_app
+    set(CMAKE_PROJECT_NAME lora_app)
     
-    # Add executable for STM32
-    add_executable(lora_app main.cpp src/platform_stm32/hal_stm32.cpp src/common/lora_app.cpp src/common/config.cpp)
+    # Add executable for STM32 (excluding root main.cpp since CubeMX provides main.c)
+    add_executable(lora_app src/platform_stm32/hal_stm32.cpp src/common/lora_app.cpp src/common/config.cpp)
+
+    # Include STM32CubeMX subdirectory which attaches sources to lora_app
+    add_subdirectory(src/platform_stm32/cmake/stm32cubemx)
 
     # Include directories for the driver
     target_include_directories(lora_app PRIVATE 
         ${sx126x_driver_SOURCE_DIR}
         src/common
-        # Add STM32 specific include directories here
     )
 
     # Link the driver and JSON library
     target_link_libraries(lora_app 
         sx126x_driver
         nlohmann_json::nlohmann_json
-        # Add STM32 HAL libraries here
     )
     
     target_compile_definitions(lora_app PRIVATE PLATFORM_STM32)
