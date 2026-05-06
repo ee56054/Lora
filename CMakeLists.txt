@@ -20,7 +20,7 @@ FetchContent_Declare(json
 FetchContent_MakeAvailable(sx126x_driver json)
 
 # Add executable
-add_executable(lora_app src/main.cpp src/hal.cpp src/lora_app.cpp src/config.cpp)
+add_executable(lora_app src/main.cpp src/hal.cpp src/lora_app.cpp src/config.cpp src/diagnostics.cpp)
 
 # Include directories for the driver and wiringOP
 target_include_directories(lora_app PRIVATE 
