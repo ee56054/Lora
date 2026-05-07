@@ -17,10 +17,44 @@ FetchContent_Declare(json
   URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
 )
 
+FetchContent_Declare(
+    libmodbus
+    GIT_REPOSITORY https://github.com/stephane/libmodbus.git
+    GIT_TAG v3.1.12
+)
+
 FetchContent_MakeAvailable(sx126x_driver json)
 
+FetchContent_GetProperties(libmodbus)
+if(NOT libmodbus_POPULATED)
+    FetchContent_Populate(libmodbus)
+
+    set(LIBMODBUS_VERSION_MAJOR 3)
+    set(LIBMODBUS_VERSION_MINOR 1)
+    set(LIBMODBUS_VERSION_MICRO 12)
+    set(LIBMODBUS_VERSION 3.1.12)
+
+    configure_file(
+        ${libmodbus_SOURCE_DIR}/src/modbus-version.h.in
+        ${libmodbus_BINARY_DIR}/modbus-version.h
+        @ONLY
+    )
+
+    add_library(libmodbus STATIC
+        ${libmodbus_SOURCE_DIR}/src/modbus.c
+        ${libmodbus_SOURCE_DIR}/src/modbus-data.c
+        ${libmodbus_SOURCE_DIR}/src/modbus-rtu.c
+        ${libmodbus_SOURCE_DIR}/src/modbus-tcp.c
+    )
+    
+    target_include_directories(libmodbus PUBLIC
+        ${libmodbus_SOURCE_DIR}/src
+        ${libmodbus_BINARY_DIR}
+    )
+endif()
+
 # Add executable
-add_executable(lora_app src/main.cpp src/hal.cpp src/lora_app.cpp src/config.cpp src/diagnostics.cpp)
+add_executable(lora_app src/main.cpp src/hal.cpp src/lora_app.cpp src/config.cpp src/diagnostics.cpp src/modbus_lora.cpp)
 
 # Include directories for the driver and wiringOP
 target_include_directories(lora_app PRIVATE 
@@ -33,4 +67,5 @@ target_link_libraries(lora_app
     sx126x_driver
     wiringPi
     nlohmann_json::nlohmann_json
+    libmodbus
 )

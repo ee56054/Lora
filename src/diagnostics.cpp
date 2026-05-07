@@ -1,11 +1,12 @@
 #include "diagnostics.h"
+#include "config.h"
 #include "hal.h"
 #include "sx126x.h"
 #include "sx126x_hal.h"
-#include "config.h"
 #include <iostream>
 #include <string>
 #include <unistd.h>
+
 
 // LoRa configuration constants
 #define FREQUENCY g_config.frequency
@@ -149,6 +150,17 @@ void show_configuration() {
   std::cout << "\n--- Timing Configuration ---" << std::endl;
   std::cout << "RX Timeout: " << RX_TIMEOUT << " ms" << std::endl;
   std::cout << "TX Delay: 5 seconds between transmissions" << std::endl;
+
+  // Modbus Configuration
+  std::cout << "\n--- Modbus Configuration ---" << std::endl;
+  std::cout << "Enabled: " << (g_config.modbus_enabled ? "Yes" : "No")
+            << std::endl;
+  std::cout << "Slave ID: " << g_config.modbus_slave_id << std::endl;
+  std::cout << "Address Devices: [";
+  for (size_t i = 0; i < g_config.modbus_address_devices.size(); ++i) {
+      std::cout << g_config.modbus_address_devices[i] << (i < g_config.modbus_address_devices.size() - 1 ? ", " : "");
+  }
+  std::cout << "]" << std::endl;
 
   std::cout << "==========================================\n" << std::endl;
 }
@@ -620,4 +632,3 @@ void read_all_registers() {
 
   std::cout << "\n==========================================\n" << std::endl;
 }
-

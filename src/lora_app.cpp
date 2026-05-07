@@ -1,10 +1,14 @@
+#include "config.h"
 #include "hal.h"
+#include "modbus.h"
+#include "modbus_lora.h"
 #include "sx126x.h"
 #include "sx126x_hal.h"
 #include <cstring>
 #include <iostream>
 #include <unistd.h>
-#include "config.h"
+
+modbus_t *g_modbus_ctx = nullptr;
 
 // LoRa configuration constants
 #define FREQUENCY g_config.frequency
@@ -142,7 +146,7 @@ bool initialize_receiver(sx126x_mod_params_lora_t *mod_params,
   sx126x_status_t status;
 
   std::cout << "\nEnabling receiver mode..." << std::endl;
-  
+
   // Enable receiver
   set_rf_switch_rx();
 
@@ -206,52 +210,94 @@ bool transmit(const uint8_t *payload, uint8_t size,
 // Transceiver loop
 void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
                       sx126x_pkt_params_lora_t *pkt_params) {
-  std::cout << "\n-- LoRa Transceiver (Echo Server) --\n" << std::endl;
+  if (g_config.modbus_enabled && g_modbus_ctx != nullptr) {
+    std::cout << "\n-- LoRa Transceiver (Modbus Master) --\n" << std::endl;
 
-  if (!initialize_receiver(mod_params, pkt_params)) {
-    std::cerr << "Failed to initialize receiver mode" << std::endl;
-    return;
-  }
-
-  std::cout << "Transceiver initialized. Listening for packets via interrupt..."
-            << std::endl;
-
-  while (true) {
-    bool has_message = false;
-    RxMessage rx_msg;
-
-    {
-      std::lock_guard<std::mutex> lock(queue_mutex);
-      if (!message_queue.empty()) {
-        rx_msg = message_queue.front();
-        message_queue.pop();
-        has_message = true;
-      }
+    if (!initialize_receiver(mod_params, pkt_params)) {
+      std::cerr << "Failed to initialize receiver mode" << std::endl;
+      return;
     }
 
-    if (has_message && !sx126x_is_busy()) {
-      std::cout << "\n--- Replying to Message ---" << std::endl;
+    std::cout << "Transceiver initialized. Polling Modbus registers..."
+              << std::endl;
 
-      // Create a reply payload
-      uint8_t reply_payload[256];
-      const char *prefix = "Echo: ";
-      uint8_t prefix_len = strlen(prefix);
+    while (true) {
+      if (!g_config.modbus_address_devices.empty()) {
+        for (int device_id : g_config.modbus_address_devices) {
+          uint16_t dest[1];
+          // Set the target slave/device address for this poll
+          modbus_set_slave(g_modbus_ctx, device_id);
 
-      memcpy(reply_payload, prefix, prefix_len);
+          int reg_to_read = 100; // Hardcoded test register
+          std::cout << "\n--- Reading Register " << reg_to_read
+                    << " from Device " << device_id << " ---" << std::endl;
 
-      uint8_t copy_len = rx_msg.data.size();
-      if (prefix_len + copy_len > 255) {
-        copy_len = 255 - prefix_len;
-      }
-      memcpy(reply_payload + prefix_len, rx_msg.data.data(), copy_len);
-      uint8_t reply_len = prefix_len + copy_len;
+          int rc = modbus_read_registers(g_modbus_ctx, reg_to_read, 1, dest);
+          if (rc == -1) {
+            std::cerr << "Failed to read device " << device_id << ": "
+                      << modbus_strerror(errno) << std::endl;
+          } else {
+            std::cout << ">>> Device " << device_id << " Register "
+                      << reg_to_read << " value: " << dest[0] << " <<<"
+                      << std::endl;
+          }
 
-      if (!transmit(reply_payload, reply_len, pkt_params)) {
-        std::cerr << "Failed to send reply!" << std::endl;
+          usleep(2000000); // 2 seconds delay between polls
+        }
+      } else {
+        std::cout << "No devices to poll in config. Sleeping..." << std::endl;
+        usleep(5000000); // 5 seconds
       }
     }
+  } else {
+    std::cout << "\n-- LoRa Transceiver (Echo Server) --\n" << std::endl;
 
-    usleep(100000); // 100ms sleep to avoid pegging CPU
+    if (!initialize_receiver(mod_params, pkt_params)) {
+      std::cerr << "Failed to initialize receiver mode" << std::endl;
+      return;
+    }
+
+    std::cout
+        << "Transceiver initialized. Listening for packets via interrupt..."
+        << std::endl;
+
+    while (true) {
+      bool has_message = false;
+      RxMessage rx_msg;
+
+      {
+        std::lock_guard<std::mutex> lock(queue_mutex);
+        if (!message_queue.empty()) {
+          rx_msg = message_queue.front();
+          message_queue.pop();
+          has_message = true;
+        }
+      }
+
+      if (has_message && !sx126x_is_busy()) {
+        std::cout << "\n--- Replying to Message ---" << std::endl;
+
+        // Create a reply payload
+        uint8_t reply_payload[256];
+        const char *prefix = "Echo: ";
+        uint8_t prefix_len = strlen(prefix);
+
+        memcpy(reply_payload, prefix, prefix_len);
+
+        uint8_t copy_len = rx_msg.data.size();
+        if (prefix_len + copy_len > 255) {
+          copy_len = 255 - prefix_len;
+        }
+        memcpy(reply_payload + prefix_len, rx_msg.data.data(), copy_len);
+        uint8_t reply_len = prefix_len + copy_len;
+
+        if (!transmit(reply_payload, reply_len, pkt_params)) {
+          std::cerr << "Failed to send reply!" << std::endl;
+        }
+      }
+
+      usleep(100000); // 100ms sleep to avoid pegging CPU
+    }
   }
 }
 
@@ -262,8 +308,10 @@ void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
 int run_lora_app() {
 
   if (!g_config.load_from_file("config.json")) {
-      std::cout << "Config file not found or invalid, saving defaults to config.json..." << std::endl;
-      g_config.save_to_file("config.json");
+    std::cout
+        << "Config file not found or invalid, saving defaults to config.json..."
+        << std::endl;
+    g_config.save_to_file("config.json");
   }
 
   std::cout << "Hello, World from CMake project with SX126X driver!"
@@ -272,7 +320,7 @@ int run_lora_app() {
   // Display all configuration settings
   show_configuration();
 
-  std::cout << "Initializing SX126X LoRa radio module..." << std::endl;
+  std::cout << "\nInitializing SX126X LoRa radio module..." << std::endl;
 
   // Initialize HAL setup
   if (!hal_setup()) {
@@ -411,6 +459,24 @@ int run_lora_app() {
               << std::endl;
   };
 
+  if (g_config.modbus_enabled) {
+    std::cout << "\nInitializing Custom Modbus LoRa Backend..." << std::endl;
+    g_modbus_ctx = modbus_new_lora(&pkt_params);
+    if (g_modbus_ctx == nullptr) {
+      std::cerr << "Unable to create the libmodbus LoRa context\n" << std::endl;
+    } else {
+      modbus_set_slave(g_modbus_ctx, g_config.modbus_slave_id);
+      if (modbus_connect(g_modbus_ctx) == -1) {
+        std::cerr << "Modbus connection failed: " << modbus_strerror(errno)
+                  << std::endl;
+        modbus_free(g_modbus_ctx);
+        g_modbus_ctx = nullptr;
+      } else {
+        std::cout << "Modbus LoRa backend connected successfully" << std::endl;
+      }
+    }
+  }
+
   sx126x_pa_cfg_params_t pa_cfg = {0};
 
   pa_cfg.pa_duty_cycle = 0x04; // 100% duty cycle
@@ -455,6 +521,11 @@ int run_lora_app() {
   // Cleanup (unreachable in current loop, but good practice)
   set_rf_switch_rx();
   spi_close();
+
+  if (g_modbus_ctx != nullptr) {
+    modbus_close(g_modbus_ctx);
+    modbus_free(g_modbus_ctx);
+  }
 
   return 0;
 }
