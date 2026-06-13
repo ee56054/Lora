@@ -18,12 +18,18 @@ FetchContent_Declare(json
 )
 
 FetchContent_Declare(
+    httplib
+    GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
+    GIT_TAG v0.15.3
+)
+
+FetchContent_Declare(
     libmodbus
     GIT_REPOSITORY https://github.com/stephane/libmodbus.git
     GIT_TAG v3.1.12
 )
 
-FetchContent_MakeAvailable(sx126x_driver json)
+FetchContent_MakeAvailable(sx126x_driver json httplib)
 
 FetchContent_GetProperties(libmodbus)
 if(NOT libmodbus_POPULATED)
@@ -40,6 +46,17 @@ if(NOT libmodbus_POPULATED)
         @ONLY
     )
 
+    set(LIBMODBUS_CONFIG_H "${libmodbus_BINARY_DIR}/config.h")
+    file(WRITE "${LIBMODBUS_CONFIG_H}" "/* Auto-generated config.h for libmodbus */\n")
+    file(APPEND "${LIBMODBUS_CONFIG_H}" "#define HAVE_GAI_STRERROR 1\n")
+    file(APPEND "${LIBMODBUS_CONFIG_H}" "#define HAVE_NETINET_IN_H 1\n")
+    file(APPEND "${LIBMODBUS_CONFIG_H}" "#define HAVE_NETINET_IP_H 1\n")
+    file(APPEND "${LIBMODBUS_CONFIG_H}" "#define HAVE_DECL_TIOCM_RTS 1\n")
+    file(APPEND "${LIBMODBUS_CONFIG_H}" "#define HAVE_DECL_TIOCSRS485 1\n")
+    file(APPEND "${LIBMODBUS_CONFIG_H}" "#ifndef IPTOS_LOWDELAY\n")
+    file(APPEND "${LIBMODBUS_CONFIG_H}" "#define IPTOS_LOWDELAY 0x10\n")
+    file(APPEND "${LIBMODBUS_CONFIG_H}" "#endif\n")
+
     add_library(libmodbus STATIC
         ${libmodbus_SOURCE_DIR}/src/modbus.c
         ${libmodbus_SOURCE_DIR}/src/modbus-data.c
@@ -54,7 +71,7 @@ if(NOT libmodbus_POPULATED)
 endif()
 
 # Add executable
-add_executable(lora_app src/main.cpp src/hal.cpp src/lora_app.cpp src/config.cpp src/diagnostics.cpp src/modbus_lora.cpp)
+add_executable(lora_app src/main.cpp src/hal.cpp src/lora_app.cpp src/config.cpp src/diagnostics.cpp src/modbus_lora.cpp src/web_server.cpp)
 
 # Include directories for the driver and wiringOP
 target_include_directories(lora_app PRIVATE 
@@ -68,4 +85,5 @@ target_link_libraries(lora_app
     wiringPi
     nlohmann_json::nlohmann_json
     libmodbus
+    httplib::httplib
 )

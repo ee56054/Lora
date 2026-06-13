@@ -7,6 +7,9 @@
 #include <cstring>
 #include <iostream>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <thread>
+#include "web_server.h"
 
 modbus_t *g_modbus_ctx = nullptr;
 
@@ -210,6 +213,12 @@ bool transmit(const uint8_t *payload, uint8_t size,
 // Transceiver loop
 void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
                       sx126x_pkt_params_lora_t *pkt_params) {
+  time_t last_config_time = 0;
+  struct stat st;
+  if (stat("config.json", &st) == 0) {
+    last_config_time = st.st_mtime;
+  }
+
   if (g_config.modbus_enabled && g_modbus_ctx != nullptr) {
     std::cout << "\n-- LoRa Transceiver (Modbus Master) --\n" << std::endl;
 
@@ -222,6 +231,11 @@ void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
               << std::endl;
 
     while (true) {
+      if (stat("config.json", &st) == 0 && st.st_mtime > last_config_time) {
+        std::cout << "\nconfig.json modified! Reloading application..." << std::endl;
+        return;
+      }
+
       if (!g_config.modbus_address_devices.empty()) {
         for (int device_id : g_config.modbus_address_devices) {
           uint16_t dest[1];
@@ -262,6 +276,11 @@ void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
         << std::endl;
 
     while (true) {
+      if (stat("config.json", &st) == 0 && st.st_mtime > last_config_time) {
+        std::cout << "\nconfig.json modified! Reloading application..." << std::endl;
+        return;
+      }
+
       bool has_message = false;
       RxMessage rx_msg;
 
@@ -306,16 +325,25 @@ void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
 #include "lora_app.h"
 
 int run_lora_app() {
-
-  if (!g_config.load_from_file("config.json")) {
-    std::cout
-        << "Config file not found or invalid, saving defaults to config.json..."
-        << std::endl;
-    g_config.save_to_file("config.json");
+  static bool web_server_started = false;
+  if (!web_server_started) {
+      std::thread web_thread([]() {
+          start_web_server();
+      });
+      web_thread.detach();
+      web_server_started = true;
   }
 
-  std::cout << "Hello, World from CMake project with SX126X driver!"
-            << std::endl;
+  while (true) {
+    if (!g_config.load_from_file("config.json")) {
+      std::cout
+          << "Config file not found or invalid, saving defaults to config.json..."
+          << std::endl;
+      g_config.save_to_file("config.json");
+    }
+
+    std::cout << "Hello, World from CMake project with SX126X driver!"
+              << std::endl;
 
   // Display all configuration settings
   show_configuration();
@@ -525,6 +553,11 @@ int run_lora_app() {
   if (g_modbus_ctx != nullptr) {
     modbus_close(g_modbus_ctx);
     modbus_free(g_modbus_ctx);
+    g_modbus_ctx = nullptr;
+  }
+  
+  std::cout << "\nRestarting application to apply new configuration...\n" << std::endl;
+  usleep(1000000); // 1 second
   }
 
   return 0;
