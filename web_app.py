@@ -151,25 +151,25 @@ HTML_PAGE = """
             <form id="configForm">
                 <div class="form-group">
                     <label>Frequency (Hz)</label>
-                    <input type="number" id="frequency" name="frequency">
+                    <input type="number" id="frequency" name="frequency" value="915000000">
                 </div>
                 <div class="form-group">
                     <label>TX Power (dBm)</label>
-                    <input type="number" id="tx_power" name="tx_power">
+                    <input type="number" id="tx_power" name="tx_power" value="22">
                 </div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                     <div class="form-group">
                         <label>Spreading Factor</label>
-                        <input type="text" id="spreading_factor" name="spreading_factor">
+                        <input type="text" id="spreading_factor" name="spreading_factor" value="SF9">
                     </div>
                     <div class="form-group">
                         <label>Bandwidth</label>
-                        <input type="text" id="bandwidth" name="bandwidth">
+                        <input type="text" id="bandwidth" name="bandwidth" value="125">
                     </div>
                 </div>
                 <div class="form-group">
                     <label>Coding Rate</label>
-                    <input type="text" id="coding_rate" name="coding_rate">
+                    <input type="text" id="coding_rate" name="coding_rate" value="4/6">
                 </div>
                 <div class="form-group checkbox-group">
                     <input type="checkbox" id="modbus_enabled" name="modbus_enabled">

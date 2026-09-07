@@ -68,6 +68,15 @@ Edit the following constants in `src/main.cpp`:
 - `DIO1_PIN`: GPIO pin number for DIO1 interrupt (default: 16)
 - `DIO4_PIN`: GPIO pin number for DIO4 transmit enable (default: 6)
 
+### LoRa Parameters
+The web UI supports selecting the following LoRa parameters:
+- Spreading Factor: `SF5`, `SF6`, `SF7`, `SF8`, `SF9`, `SF10`, `SF11`, `SF12`
+- Bandwidth (kHz): `7.81`, `10.42`, `15.63`, `20.83`, `31.25`, `41.67`, `62.5`, `125`, `250`, `500`
+- Coding Rate: `4/5`, `4/6`, `4/7`, `4/8`
+- TX Power: numeric value in dBm, range `-9` to `+22`
+
+The default configuration values are `915000000` Hz (915 MHz) frequency, `22` dBm TX power, `SF9` spreading factor, `125` kHz bandwidth, `4/6` coding rate, preamble length `8`, and RX timeout `5000` ms.
+
 ## Dependencies
 
 - CMake 3.22 or higher

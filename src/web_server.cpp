@@ -151,11 +151,11 @@ static const char* HTML_PAGE = R"RAW(
             <form id="configForm">
                 <div class="form-group">
                     <label>Frequency (Hz)</label>
-                    <input type="number" id="frequency" name="frequency">
+                    <input type="number" id="frequency" name="frequency" value="915000000">
                 </div>
                 <div class="form-group">
                     <label>TX Power (dBm)</label>
-                    <input type="number" id="tx_power" name="tx_power" min="-9" max="22" step="1">
+                    <input type="number" id="tx_power" name="tx_power" min="-9" max="22" step="1" value="22">
                 </div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                     <div class="form-group">
@@ -165,7 +165,7 @@ static const char* HTML_PAGE = R"RAW(
                             <option value="SF6">SF6</option>
                             <option value="SF7">SF7</option>
                             <option value="SF8">SF8</option>
-                            <option value="SF9">SF9</option>
+                            <option value="SF9" selected>SF9</option>
                             <option value="SF10">SF10</option>
                             <option value="SF11">SF11</option>
                             <option value="SF12">SF12</option>
@@ -181,7 +181,7 @@ static const char* HTML_PAGE = R"RAW(
                             <option value="31.25">31.25</option>
                             <option value="41.67">41.67</option>
                             <option value="62.5">62.5</option>
-                            <option value="125">125</option>
+                            <option value="125" selected>125</option>
                             <option value="250">250</option>
                             <option value="500">500</option>
                         </select>
@@ -191,7 +191,7 @@ static const char* HTML_PAGE = R"RAW(
                     <label>Coding Rate</label>
                     <select id="coding_rate" name="coding_rate">
                         <option value="4/5">4/5</option>
-                        <option value="4/6">4/6</option>
+                        <option value="4/6" selected>4/6</option>
                         <option value="4/7">4/7</option>
                         <option value="4/8">4/8</option>
                     </select>

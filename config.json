@@ -1,0 +1,12 @@
+{
+    "frequency": 915000000,
+    "tx_power": 22,
+    "spreading_factor": "SF9",
+    "bandwidth": "125",
+    "coding_rate": "4/6",
+    "preamble_length": 8,
+    "rx_timeout": 5000,
+    "modbus_enabled": false,
+    "modbus_slave_id": 1,
+    "modbus_address_devices": []
+}

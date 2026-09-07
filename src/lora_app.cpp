@@ -453,8 +453,8 @@ int run_lora_app() {
   }
 
   // Configure modulation parameters
-  // SF=7, BW=125kHz, CR=4/5
-  std::cout << "Setting modulation parameters (SF=7, BW=125kHz, CR=4/5)..."
+  // SF=9, BW=125kHz, CR=4/6
+  std::cout << "Setting modulation parameters (SF=9, BW=125kHz, CR=4/6)..."
             << std::endl;
   sx126x_mod_params_lora_t mod_params = {
       .sf = SPREADING_FACTOR,
@@ -469,9 +469,9 @@ int run_lora_app() {
   }
 
   // Configure packet parameters
-  // Explicit header, preamble=12, payload=15, CRC enabled
+  // Explicit header, preamble=8, payload=255
   std::cout
-      << "Setting packet parameters (Explicit header, preamble=12, CRC=on)..."
+      << "Setting packet parameters (Explicit header, preamble=8)..."
       << std::endl;
   sx126x_pkt_params_lora_t pkt_params = {
       .preamble_len_in_symb = PREAMBLE_LENGTH,
