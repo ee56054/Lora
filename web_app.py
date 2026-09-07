@@ -227,7 +227,7 @@ HTML_PAGE = """
             fetch('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(config)
+                body: JSON.stringify(config, null, 4)
             }).then(() => {
                 const toast = document.getElementById('toast');
                 toast.classList.add('show');
@@ -264,13 +264,20 @@ class ConfigHandler(http.server.SimpleHTTPRequestHandler):
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length)
             
-            with open('config.json', 'wb') as f:
-                f.write(post_data)
-                
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(b'{"status": "ok"}')
+            try:
+                data = json.loads(post_data.decode('utf-8'))
+                with open('config.json', 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=4)
+                    f.write('\n')
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(b'{"status": "ok"}')
+            except Exception as e:
+                self.send_response(400)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
 
 with socketserver.TCPServer(("", PORT), ConfigHandler) as httpd:
     print(f"Serving LoRa Config Web App at http://localhost:{PORT}")

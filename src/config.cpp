@@ -191,6 +191,6 @@ bool LoraConfig::save_to_file(const std::string &filepath) const {
     return false;
   }
 
-  file << j.dump(4); // 4 spaces indent
+  file << j.dump(4) << std::endl; // 4 spaces indent
   return true;
 }

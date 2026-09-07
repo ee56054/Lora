@@ -4,6 +4,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <nlohmann/json.hpp>
 
 static const char* HTML_PAGE = R"RAW(
 <!DOCTYPE html>
@@ -252,7 +253,7 @@ static const char* HTML_PAGE = R"RAW(
             fetch('/api/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(config)
+                body: JSON.stringify(config, null, 4)
             }).then(() => {
                 const toast = document.getElementById('toast');
                 toast.classList.add('show');
@@ -283,13 +284,19 @@ void start_web_server() {
     });
 
     svr.Post("/api/config", [](const httplib::Request& req, httplib::Response& res) {
-        std::ofstream file("config.json");
-        if (file.is_open()) {
-            file << req.body;
-            res.set_content("{\"status\": \"ok\"}", "application/json");
-        } else {
-            res.status = 500;
-            res.set_content("{\"error\": \"Could not write to file\"}", "application/json");
+        try {
+            nlohmann::json j = nlohmann::json::parse(req.body);
+            std::ofstream file("config.json");
+            if (file.is_open()) {
+                file << j.dump(4) << std::endl;
+                res.set_content("{\"status\": \"ok\"}", "application/json");
+            } else {
+                res.status = 500;
+                res.set_content("{\"error\": \"Could not write to file\"}", "application/json");
+            }
+        } catch (const std::exception& e) {
+            res.status = 400;
+            res.set_content("{\"error\": \"Invalid JSON\"}", "application/json");
         }
     });
 
