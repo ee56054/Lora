@@ -125,29 +125,6 @@ void dio1_interrupt_handler(void) {
         RxMessage msg;
         msg.data.assign(payload, payload + payload_len);
         message_queue.push(msg);
-      } else {
-        // Reply directly
-        std::cout << "\n--- Replying to Message Directly ---" << std::endl;
-
-        uint8_t reply_payload[256];
-        const char *prefix = "Echo: ";
-        uint8_t prefix_len = strlen(prefix);
-
-        memcpy(reply_payload, prefix, prefix_len);
-
-        uint8_t copy_len = payload_len;
-        if (prefix_len + copy_len > 255) {
-          copy_len = 255 - prefix_len;
-        }
-        memcpy(reply_payload + prefix_len, payload, copy_len);
-        uint8_t reply_len = prefix_len + copy_len;
-
-        if (g_pkt_params != nullptr) {
-          if (!transmit(reply_payload, reply_len, g_pkt_params)) {
-            std::cerr << "Failed to send reply directly!" << std::endl;
-          }
-        }
-        return;
       }
     } else {
       // Clear RX_DONE IRQ if buffer read failed
