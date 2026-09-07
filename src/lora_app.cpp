@@ -34,9 +34,23 @@ struct RxMessage {
 
 std::queue<RxMessage> message_queue;
 std::mutex queue_mutex;
+std::recursive_mutex g_lora_mutex;
+
+// Forward declaration of transmit
+bool transmit(const uint8_t *payload, uint8_t size,
+              sx126x_pkt_params_lora_t *pkt_params);
+
+static sx126x_pkt_params_lora_t g_default_pkt_params = {
+    .preamble_len_in_symb = 8,
+    .header_type = SX126X_LORA_PKT_EXPLICIT,
+    .pld_len_in_bytes = 0xff,
+    .crc_is_on = false,
+    .invert_iq_is_on = false};
+sx126x_pkt_params_lora_t *g_pkt_params = &g_default_pkt_params;
 
 // Interrupt handler for DIO1 - processes packets directly
 void dio1_interrupt_handler(void) {
+  std::lock_guard<std::recursive_mutex> lock(g_lora_mutex);
   uint8_t payload[256];
   uint8_t payload_len;
   int16_t rssi = 0;
@@ -73,6 +87,9 @@ void dio1_interrupt_handler(void) {
     status = sx126x_read_buffer(NULL, buffer_offset, payload, payload_len);
     if (status == SX126X_STATUS_OK) {
       packet_count++;
+      if (payload_len < sizeof(payload)) {
+        payload[payload_len] = '\0';
+      }
       std::cout << "\n[Packet #" << packet_count << "] Received "
                 << (int)payload_len << " bytes:" << std::endl;
       std::cout << "  RSSI: " << (int)rssi << " dBm, SNR: " << (int)snr << " dB"
@@ -99,17 +116,43 @@ void dio1_interrupt_handler(void) {
       }
       std::cout << std::endl;
 
-      // Copy to message queue to trigger a reply
-      {
-        std::lock_guard<std::mutex> lock(queue_mutex);
+      // Clear RX_DONE IRQ
+      sx126x_clear_irq_status(NULL, SX126X_IRQ_RX_DONE);
+
+      if (g_config.modbus_enabled) {
+        // Copy to message queue for Modbus processing
+        std::lock_guard<std::mutex> q_lock(queue_mutex);
         RxMessage msg;
         msg.data.assign(payload, payload + payload_len);
         message_queue.push(msg);
-      }
-    }
+      } else {
+        // Reply directly
+        std::cout << "\n--- Replying to Message Directly ---" << std::endl;
 
-    // Clear RX_DONE IRQ
-    sx126x_clear_irq_status(NULL, SX126X_IRQ_RX_DONE);
+        uint8_t reply_payload[256];
+        const char *prefix = "Echo: ";
+        uint8_t prefix_len = strlen(prefix);
+
+        memcpy(reply_payload, prefix, prefix_len);
+
+        uint8_t copy_len = payload_len;
+        if (prefix_len + copy_len > 255) {
+          copy_len = 255 - prefix_len;
+        }
+        memcpy(reply_payload + prefix_len, payload, copy_len);
+        uint8_t reply_len = prefix_len + copy_len;
+
+        if (g_pkt_params != nullptr) {
+          if (!transmit(reply_payload, reply_len, g_pkt_params)) {
+            std::cerr << "Failed to send reply directly!" << std::endl;
+          }
+        }
+        return;
+      }
+    } else {
+      // Clear RX_DONE IRQ if buffer read failed
+      sx126x_clear_irq_status(NULL, SX126X_IRQ_RX_DONE);
+    }
   } else if (irq_mask & SX126X_IRQ_TX_DONE) {
     std::cout << "\nTX_DONE IRQ detected - transmission complete!" << std::endl;
     sx126x_clear_irq_status(NULL, SX126X_IRQ_TX_DONE);
@@ -178,6 +221,7 @@ bool initialize_receiver(sx126x_mod_params_lora_t *mod_params,
 // Transmit a packet
 bool transmit(const uint8_t *payload, uint8_t size,
               sx126x_pkt_params_lora_t *pkt_params) {
+  std::lock_guard<std::recursive_mutex> lock(g_lora_mutex);
   sx126x_status_t status;
 
   // Switch to TX mode
@@ -285,44 +329,11 @@ void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
         return;
       }
 
-      bool has_message = false;
-      RxMessage rx_msg;
-
-      {
-        std::lock_guard<std::mutex> lock(queue_mutex);
-        if (!message_queue.empty()) {
-          rx_msg = message_queue.front();
-          message_queue.pop();
-          has_message = true;
-        }
-      }
-
-      if (has_message && !sx126x_is_busy()) {
-        std::cout << "\n--- Replying to Message ---" << std::endl;
-
-        // Create a reply payload
-        uint8_t reply_payload[256];
-        const char *prefix = "Echo: ";
-        uint8_t prefix_len = strlen(prefix);
-
-        memcpy(reply_payload, prefix, prefix_len);
-
-        uint8_t copy_len = rx_msg.data.size();
-        if (prefix_len + copy_len > 255) {
-          copy_len = 255 - prefix_len;
-        }
-        memcpy(reply_payload + prefix_len, rx_msg.data.data(), copy_len);
-        uint8_t reply_len = prefix_len + copy_len;
-
-        if (!transmit(reply_payload, reply_len, pkt_params)) {
-          std::cerr << "Failed to send reply!" << std::endl;
-        }
-      }
-
       // Transmit every 1 second
       auto now = std::chrono::steady_clock::now();
       if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_tx_time).count() >= 1000) {
         last_tx_time = now;
+        std::lock_guard<std::recursive_mutex> lock(g_lora_mutex);
         if (!sx126x_is_busy()) {
           char tx_payload[64];
           int tx_len = snprintf(tx_payload, sizeof(tx_payload), "HeLoRa World! %u", tx_counter++);
@@ -333,7 +344,7 @@ void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
         }
       }
 
-      usleep(50000); // 50ms sleep to check queue and timer smoothly
+      usleep(50000); // 50ms sleep to check timer and config smoothly
     }
   }
 }
@@ -504,6 +515,7 @@ int run_lora_app() {
     std::cerr << "Failed to set packet parameters, status: " << (int)status
               << std::endl;
   };
+  g_pkt_params = &pkt_params;
 
   if (g_config.modbus_enabled) {
     std::cout << "\nInitializing Custom Modbus LoRa Backend..." << std::endl;
