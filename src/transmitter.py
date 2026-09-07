@@ -72,8 +72,8 @@ while True :
     # Print transmit time and data rate
     print("Transmit time: {0:0.2f} ms | Data rate: {1:0.2f} byte/s".format(LoRa.transmitTime(), LoRa.dataRate()))
 
-    # Don't load RF module with continous transmit
-    time.sleep(5)
+    # Delay 1 second between transmissions
+    time.sleep(1)
     counter = (counter + 1) % 256
 
 try :

@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <thread>
+#include <chrono>
 #include "web_server.h"
 
 modbus_t *g_modbus_ctx = nullptr;
@@ -256,7 +257,7 @@ void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
                       << std::endl;
           }
 
-          usleep(2000000); // 2 seconds delay between polls
+          usleep(1000000); // 1 second delay between polls
         }
       } else {
         std::cout << "No devices to poll in config. Sleeping..." << std::endl;
@@ -264,7 +265,7 @@ void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
       }
     }
   } else {
-    std::cout << "\n-- LoRa Transceiver (Echo Server) --\n" << std::endl;
+    std::cout << "\n-- LoRa Transceiver --\n" << std::endl;
 
     if (!initialize_receiver(mod_params, pkt_params)) {
       std::cerr << "Failed to initialize receiver mode" << std::endl;
@@ -272,8 +273,11 @@ void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
     }
 
     std::cout
-        << "Transceiver initialized. Listening for packets via interrupt..."
+        << "Transceiver initialized. Listening for packets and transmitting every 1 sec..."
         << std::endl;
+
+    auto last_tx_time = std::chrono::steady_clock::now();
+    uint32_t tx_counter = 0;
 
     while (true) {
       if (stat("config.json", &st) == 0 && st.st_mtime > last_config_time) {
@@ -315,7 +319,21 @@ void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
         }
       }
 
-      usleep(100000); // 100ms sleep to avoid pegging CPU
+      // Transmit every 1 second
+      auto now = std::chrono::steady_clock::now();
+      if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_tx_time).count() >= 1000) {
+        last_tx_time = now;
+        if (!sx126x_is_busy()) {
+          char tx_payload[64];
+          int tx_len = snprintf(tx_payload, sizeof(tx_payload), "HeLoRa World! %u", tx_counter++);
+          std::cout << "\n--- Periodic Transmission (every 1s) ---" << std::endl;
+          if (!transmit((const uint8_t *)tx_payload, tx_len, pkt_params)) {
+            std::cerr << "Periodic transmission failed!" << std::endl;
+          }
+        }
+      }
+
+      usleep(50000); // 50ms sleep to check queue and timer smoothly
     }
   }
 }
