@@ -77,7 +77,7 @@ void dio1_interrupt_handler(void) {
                 << (int)payload_len << " bytes:" << std::endl;
       std::cout << "  RSSI: " << (int)rssi << " dBm, SNR: " << (int)snr << " dB"
                 << std::endl;
-      std::cout << "  Data: ";
+      std::cout << "  Data: " << payload << std::endl;
 
       // Print payload as string (if printable) or hex
       bool all_printable = true;
