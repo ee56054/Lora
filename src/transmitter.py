@@ -74,6 +74,8 @@ while True :
 
     # Delay 1 second between transmissions
     time.sleep(1)
+    # Delay 5 seconds between transmissions
+    time.sleep(5)
     counter = (counter + 1) % 256
 
 try :

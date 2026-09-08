@@ -295,6 +295,7 @@ void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
 
     std::cout
         << "Transceiver initialized. Listening for packets and transmitting every 1 sec..."
+        << "Transceiver initialized. Listening for packets and transmitting every 5 sec..."
         << std::endl;
 
     auto last_tx_time = std::chrono::steady_clock::now();
@@ -307,14 +308,17 @@ void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
       }
 
       // Transmit every 1 second
+      // Transmit every 5 seconds
       auto now = std::chrono::steady_clock::now();
       if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_tx_time).count() >= 1000) {
+      if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_tx_time).count() >= 5000) {
         last_tx_time = now;
         std::lock_guard<std::recursive_mutex> lock(g_lora_mutex);
         if (!sx126x_is_busy()) {
           char tx_payload[64];
           int tx_len = snprintf(tx_payload, sizeof(tx_payload), "HeLoRa World! %u", tx_counter++);
           std::cout << "\n--- Periodic Transmission (every 1s) ---" << std::endl;
+          std::cout << "\n--- Periodic Transmission (every 5s) ---" << std::endl;
           if (!transmit((const uint8_t *)tx_payload, tx_len, pkt_params)) {
             std::cerr << "Periodic transmission failed!" << std::endl;
           }
