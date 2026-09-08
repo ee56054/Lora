@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <cstring>
 #include <iostream>
+#include <cerrno>
 
 // External declarations to access lora_app's queue and transmit function
 struct RxMessage {
@@ -52,6 +53,11 @@ static int _modbus_lora_send_msg_pre(uint8_t *req, int req_length) {
 
 static ssize_t _modbus_lora_send(modbus_t *ctx, const uint8_t *req, int req_length) {
     modbus_lora_data_t *data = (modbus_lora_data_t *)ctx->backend_data;
+    std::cout << "[Modbus LoRa] Sending request (" << req_length << " bytes): ";
+    for (int i = 0; i < req_length; i++) {
+        printf("%02X ", req[i]);
+    }
+    std::cout << std::endl;
     if (transmit(req, req_length, data->pkt_params)) {
         return req_length;
     }
@@ -69,6 +75,11 @@ static ssize_t _modbus_lora_recv(modbus_t *ctx, uint8_t *rsp, int rsp_length) {
     if (to_copy > 0) {
         memcpy(rsp, data->rx_buffer.data() + data->rx_offset, to_copy);
         data->rx_offset += to_copy;
+        std::cout << "[Modbus LoRa] Received response (" << to_copy << " bytes): ";
+        for (size_t i = 0; i < to_copy; i++) {
+            printf("%02X ", rsp[i]);
+        }
+        std::cout << std::endl;
     }
     return to_copy;
 }
@@ -129,6 +140,8 @@ static int _modbus_lora_select(modbus_t *ctx, fd_set *rset, struct timeval *tv, 
         elapsed_ms += 10;
     }
     return 0; 
+    errno = ETIMEDOUT;
+    return -1; 
 }
 
 static void _modbus_lora_free(modbus_t *ctx) {

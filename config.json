@@ -7,7 +7,11 @@
     "preamble_length": 8,
     "rx_timeout": 5000,
     "modbus_enabled": false,
+    "modbus_enabled": true,
     "modbus_slave_id": 1,
     "modbus_address_devices": []
+    "modbus_address_devices": [
+        1
+    ]
 }
 

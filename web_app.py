@@ -173,16 +173,19 @@ HTML_PAGE = """
                 </div>
                 <div class="form-group checkbox-group">
                     <input type="checkbox" id="modbus_enabled" name="modbus_enabled">
+                    <input type="checkbox" id="modbus_enabled" name="modbus_enabled" checked>
                     <label for="modbus_enabled">Enable Modbus Protocol</label>
                 </div>
                 <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 1rem;">
                     <div class="form-group">
                         <label>Slave ID</label>
                         <input type="number" id="modbus_slave_id" name="modbus_slave_id">
+                        <input type="number" id="modbus_slave_id" name="modbus_slave_id" value="1">
                     </div>
                     <div class="form-group">
                         <label>Address Devices</label>
                         <input type="text" id="modbus_address_devices" name="modbus_address_devices" placeholder="e.g. 1, 2, 3">
+                        <input type="text" id="modbus_address_devices" name="modbus_address_devices" value="1" placeholder="e.g. 1, 2, 3">
                     </div>
                 </div>
                 <button type="submit">Save & Reload Device</button>
@@ -201,8 +204,10 @@ HTML_PAGE = """
                 document.getElementById('bandwidth').value = data.bandwidth || '125';
                 document.getElementById('coding_rate').value = data.coding_rate || '4/6';
                 document.getElementById('modbus_enabled').checked = data.modbus_enabled || false;
+                document.getElementById('modbus_enabled').checked = (data.modbus_enabled !== undefined) ? data.modbus_enabled : true;
                 document.getElementById('modbus_slave_id').value = data.modbus_slave_id || 1;
                 document.getElementById('modbus_address_devices').value = (data.modbus_address_devices || []).join(', ');
+                document.getElementById('modbus_address_devices').value = (data.modbus_address_devices && data.modbus_address_devices.length > 0) ? data.modbus_address_devices.join(', ') : '1';
             });
 
         document.getElementById('configForm').addEventListener('submit', function(e) {
