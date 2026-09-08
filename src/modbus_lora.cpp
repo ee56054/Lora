@@ -139,7 +139,6 @@ static int _modbus_lora_select(modbus_t *ctx, fd_set *rset, struct timeval *tv, 
         usleep(10000); // 10ms
         elapsed_ms += 10;
     }
-    return 0; 
     errno = ETIMEDOUT;
     return -1; 
 }

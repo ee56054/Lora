@@ -17,10 +17,8 @@ struct LoraConfig {
   uint16_t preamble_length = 8;
   uint32_t rx_timeout = 5000;
 
-  bool modbus_enabled = false;
   bool modbus_enabled = true;
   int modbus_slave_id = 1;
-  std::vector<int> modbus_address_devices;
   std::vector<int> modbus_address_devices = {1};
 
   bool load_from_file(const std::string &filepath);

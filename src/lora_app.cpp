@@ -279,39 +279,21 @@ void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
         return;
       }
 
-      if (!g_config.modbus_address_devices.empty()) {
-        for (int device_id : g_config.modbus_address_devices) {
-          uint16_t dest[1];
-          // Set the target slave/device address for this poll
-          modbus_set_slave(g_modbus_ctx, device_id);
       std::vector<int> devices = g_config.modbus_address_devices;
       if (devices.empty()) {
         devices.push_back(g_config.modbus_slave_id > 0 ? g_config.modbus_slave_id : 1);
       }
 
-          int reg_to_read = 100; // Hardcoded test register
-          std::cout << "\n--- Reading Register " << reg_to_read
-                    << " from Device " << device_id << " ---" << std::endl;
       for (int device_id : devices) {
         if (stat("config.json", &st) == 0 && st.st_mtime > last_config_time) {
           std::cout << "\nconfig.json modified! Reloading application..." << std::endl;
           return;
         }
 
-          int rc = modbus_read_registers(g_modbus_ctx, reg_to_read, 1, dest);
-          if (rc == -1) {
-            std::cerr << "Failed to read device " << device_id << ": "
-                      << modbus_strerror(errno) << std::endl;
-          } else {
-            std::cout << ">>> Device " << device_id << " Register "
-                      << reg_to_read << " value: " << dest[0] << " <<<"
-                      << std::endl;
-          }
         uint16_t dest[1] = {0};
         // Set the target slave/device address for this poll
         modbus_set_slave(g_modbus_ctx, device_id);
 
-          usleep(1000000); // 1 second delay between polls
         int reg_to_read = 100; // Hardcoded test register
         std::cout << "\n--- Reading Register " << reg_to_read
                   << " from Device " << device_id << " ---" << std::endl;
@@ -325,9 +307,6 @@ void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
                     << reg_to_read << " value: " << dest[0] << " <<<"
                     << std::endl;
         }
-      } else {
-        std::cout << "No devices to poll in config. Sleeping..." << std::endl;
-        usleep(5000000); // 5 seconds
 
         usleep(5000000); // 5 second delay between polls
       }
