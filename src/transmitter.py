@@ -72,8 +72,6 @@ while True :
     # Print transmit time and data rate
     print("Transmit time: {0:0.2f} ms | Data rate: {1:0.2f} byte/s".format(LoRa.transmitTime(), LoRa.dataRate()))
 
-    # Delay 1 second between transmissions
-    time.sleep(1)
     # Delay 5 seconds between transmissions
     time.sleep(5)
     counter = (counter + 1) % 256
