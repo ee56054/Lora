@@ -97,5 +97,8 @@ bool modbus_read_all(int slave_id);
 // Retrieve latest telemetry cache
 ModbusTelemetry get_modbus_telemetry();
 
+// Retrieve description of last Modbus error
+std::string get_last_modbus_error();
+
 #endif // MODBUS_APP_H
 

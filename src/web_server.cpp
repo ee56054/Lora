@@ -764,7 +764,7 @@ void start_web_server() {
                 resp["value"] = val;
             } else {
                 res.status = 400;
-                res.set_content("{\"error\": \"Invalid register type\"}", "application/json");
+                res.set_content("{\"status\": \"error\", \"error\": \"Invalid register type\"}", "application/json");
                 return;
             }
 
@@ -772,12 +772,14 @@ void start_web_server() {
                 resp["status"] = "ok";
                 res.set_content(resp.dump(), "application/json");
             } else {
+                std::string err = get_last_modbus_error();
+                if (err.empty()) err = "Failed to read Modbus data";
                 res.status = 500;
-                res.set_content("{\"error\": \"Failed to read Modbus data\"}", "application/json");
+                res.set_content(nlohmann::json({{"status", "error"}, {"error", err}}).dump(), "application/json");
             }
         } catch (...) {
             res.status = 400;
-            res.set_content("{\"error\": \"Invalid request JSON\"}", "application/json");
+            res.set_content("{\"status\": \"error\", \"error\": \"Invalid request JSON\"}", "application/json");
         }
     });
 
@@ -811,12 +813,14 @@ void start_web_server() {
                 };
                 res.set_content(resp.dump(), "application/json");
             } else {
+                std::string err = get_last_modbus_error();
+                if (err.empty()) err = "Failed to read all values";
                 res.status = 500;
-                res.set_content("{\"error\": \"Failed to read all values\"}", "application/json");
+                res.set_content(nlohmann::json({{"status", "error"}, {"error", err}}).dump(), "application/json");
             }
         } catch (...) {
             res.status = 400;
-            res.set_content("{\"error\": \"Invalid request JSON\"}", "application/json");
+            res.set_content("{\"status\": \"error\", \"error\": \"Invalid request JSON\"}", "application/json");
         }
     });
 
@@ -830,12 +834,14 @@ void start_web_server() {
             if (success) {
                 res.set_content("{\"status\": \"ok\"}", "application/json");
             } else {
+                std::string err = get_last_modbus_error();
+                if (err.empty()) err = "Failed to write coil";
                 res.status = 500;
-                res.set_content("{\"error\": \"Failed to write coil\"}", "application/json");
+                res.set_content(nlohmann::json({{"status", "error"}, {"error", err}}).dump(), "application/json");
             }
         } catch (...) {
             res.status = 400;
-            res.set_content("{\"error\": \"Invalid request JSON\"}", "application/json");
+            res.set_content("{\"status\": \"error\", \"error\": \"Invalid request JSON\"}", "application/json");
         }
     });
 
@@ -849,12 +855,14 @@ void start_web_server() {
             if (success) {
                 res.set_content("{\"status\": \"ok\"}", "application/json");
             } else {
+                std::string err = get_last_modbus_error();
+                if (err.empty()) err = "Failed to write register";
                 res.status = 500;
-                res.set_content("{\"error\": \"Failed to write register\"}", "application/json");
+                res.set_content(nlohmann::json({{"status", "error"}, {"error", err}}).dump(), "application/json");
             }
         } catch (...) {
             res.status = 400;
-            res.set_content("{\"error\": \"Invalid request JSON\"}", "application/json");
+            res.set_content("{\"status\": \"error\", \"error\": \"Invalid request JSON\"}", "application/json");
         }
     });
 
@@ -868,15 +876,18 @@ void start_web_server() {
             if (success) {
                 res.set_content("{\"status\": \"ok\"}", "application/json");
             } else {
+                std::string err = get_last_modbus_error();
+                if (err.empty()) err = "Failed to write valve";
                 res.status = 500;
-                res.set_content("{\"error\": \"Failed to write valve\"}", "application/json");
+                res.set_content(nlohmann::json({{"status", "error"}, {"error", err}}).dump(), "application/json");
             }
         } catch (...) {
             res.status = 400;
-            res.set_content("{\"error\": \"Invalid request JSON\"}", "application/json");
+            res.set_content("{\"status\": \"error\", \"error\": \"Invalid request JSON\"}", "application/json");
         }
     });
 
     std::cout << "\n>>> Starting Embedded C++ Web Server on http://0.0.0.0:8080 <<<\n" << std::endl;
     svr.listen("0.0.0.0", 8080);
 }
+

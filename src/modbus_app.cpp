@@ -312,6 +312,19 @@ static std::string get_current_time_str() {
   return "Unknown";
 }
 
+static std::string g_last_modbus_error = "";
+static std::mutex g_error_mutex;
+
+static void set_last_modbus_error(const std::string &err) {
+  std::lock_guard<std::mutex> lock(g_error_mutex);
+  g_last_modbus_error = err;
+}
+
+std::string get_last_modbus_error() {
+  std::lock_guard<std::mutex> lock(g_error_mutex);
+  return g_last_modbus_error;
+}
+
 ModbusTelemetry get_modbus_telemetry() {
   std::lock_guard<std::mutex> lock(g_telemetry_mutex);
   return g_telemetry;
@@ -354,10 +367,13 @@ void run_modbus_loop(sx126x_mod_params_lora_t *mod_params,
 
 bool modbus_read_coil_val(int slave_id, int address, bool &out_val) {
   if (!is_modbus_ready()) {
-    std::cerr << "[Modbus Read] Error: Modbus context not initialized" << std::endl;
+    std::string err = "Modbus context not initialized (check if modbus_enabled is true in config.json)";
+    std::cerr << "[Modbus Read] Error: " << err << std::endl;
+    set_last_modbus_error(err);
     return false;
   }
   std::lock_guard<std::mutex> lock(g_modbus_mutex);
+  modbus_flush(g_modbus_ctx);
   modbus_set_slave(g_modbus_ctx, slave_id);
 
   std::cout << "\n>>> [MODBUS READ COIL (FC 01)] Target Slave " << slave_id
@@ -366,8 +382,14 @@ bool modbus_read_coil_val(int slave_id, int address, bool &out_val) {
   uint8_t dest[1] = {0};
   int rc = modbus_read_bits(g_modbus_ctx, address, 1, dest);
   if (rc == -1) {
-    std::cerr << "[Modbus Read] Failed to read coil " << address << ": "
-              << modbus_strerror(errno) << std::endl;
+    std::string err;
+    if (errno == ETIMEDOUT) {
+      err = "Connection timed out: No response received from Slave " + std::to_string(slave_id) + " for Coil " + std::to_string(address) + " (verify slave is powered, on same RF frequency/SF, and matching Slave ID)";
+    } else {
+      err = std::string("Failed to read coil ") + std::to_string(address) + ": " + modbus_strerror(errno);
+    }
+    std::cerr << "[Modbus Read] " << err << std::endl;
+    set_last_modbus_error(err);
     return false;
   }
   out_val = (dest[0] != 0);
@@ -384,15 +406,19 @@ bool modbus_read_coil_val(int slave_id, int address, bool &out_val) {
     g_telemetry.last_update = get_current_time_str();
   }
 
+  set_last_modbus_error("");
   return true;
 }
 
 bool modbus_read_discrete_input_val(int slave_id, int address, bool &out_val) {
   if (!is_modbus_ready()) {
-    std::cerr << "[Modbus Read] Error: Modbus context not initialized" << std::endl;
+    std::string err = "Modbus context not initialized (check if modbus_enabled is true in config.json)";
+    std::cerr << "[Modbus Read] Error: " << err << std::endl;
+    set_last_modbus_error(err);
     return false;
   }
   std::lock_guard<std::mutex> lock(g_modbus_mutex);
+  modbus_flush(g_modbus_ctx);
   modbus_set_slave(g_modbus_ctx, slave_id);
 
   std::cout << "\n>>> [MODBUS READ DISCRETE INPUT (FC 02)] Target Slave " << slave_id
@@ -401,8 +427,14 @@ bool modbus_read_discrete_input_val(int slave_id, int address, bool &out_val) {
   uint8_t dest[1] = {0};
   int rc = modbus_read_input_bits(g_modbus_ctx, address, 1, dest);
   if (rc == -1) {
-    std::cerr << "[Modbus Read] Failed to read discrete input " << address << ": "
-              << modbus_strerror(errno) << std::endl;
+    std::string err;
+    if (errno == ETIMEDOUT) {
+      err = "Connection timed out: No response received from Slave " + std::to_string(slave_id) + " for Discrete Input " + std::to_string(address);
+    } else {
+      err = std::string("Failed to read discrete input ") + std::to_string(address) + ": " + modbus_strerror(errno);
+    }
+    std::cerr << "[Modbus Read] " << err << std::endl;
+    set_last_modbus_error(err);
     return false;
   }
   out_val = (dest[0] != 0);
@@ -419,15 +451,19 @@ bool modbus_read_discrete_input_val(int slave_id, int address, bool &out_val) {
     g_telemetry.last_update = get_current_time_str();
   }
 
+  set_last_modbus_error("");
   return true;
 }
 
 bool modbus_read_input_reg_val(int slave_id, int address, uint16_t &out_val) {
   if (!is_modbus_ready()) {
-    std::cerr << "[Modbus Read] Error: Modbus context not initialized" << std::endl;
+    std::string err = "Modbus context not initialized (check if modbus_enabled is true in config.json)";
+    std::cerr << "[Modbus Read] Error: " << err << std::endl;
+    set_last_modbus_error(err);
     return false;
   }
   std::lock_guard<std::mutex> lock(g_modbus_mutex);
+  modbus_flush(g_modbus_ctx);
   modbus_set_slave(g_modbus_ctx, slave_id);
 
   std::cout << "\n>>> [MODBUS READ INPUT REGISTER (FC 04)] Target Slave " << slave_id
@@ -436,8 +472,14 @@ bool modbus_read_input_reg_val(int slave_id, int address, uint16_t &out_val) {
   uint16_t dest[1] = {0};
   int rc = modbus_read_input_registers(g_modbus_ctx, address, 1, dest);
   if (rc == -1) {
-    std::cerr << "[Modbus Read] Failed to read input register " << address << ": "
-              << modbus_strerror(errno) << std::endl;
+    std::string err;
+    if (errno == ETIMEDOUT) {
+      err = "Connection timed out: No response received from Slave " + std::to_string(slave_id) + " for Input Register " + std::to_string(address);
+    } else {
+      err = std::string("Failed to read input register ") + std::to_string(address) + ": " + modbus_strerror(errno);
+    }
+    std::cerr << "[Modbus Read] " << err << std::endl;
+    set_last_modbus_error(err);
     return false;
   }
   out_val = dest[0];
@@ -454,15 +496,19 @@ bool modbus_read_input_reg_val(int slave_id, int address, uint16_t &out_val) {
     g_telemetry.last_update = get_current_time_str();
   }
 
+  set_last_modbus_error("");
   return true;
 }
 
 bool modbus_read_holding_reg_val(int slave_id, int address, uint16_t &out_val) {
   if (!is_modbus_ready()) {
-    std::cerr << "[Modbus Read] Error: Modbus context not initialized" << std::endl;
+    std::string err = "Modbus context not initialized (check if modbus_enabled is true in config.json)";
+    std::cerr << "[Modbus Read] Error: " << err << std::endl;
+    set_last_modbus_error(err);
     return false;
   }
   std::lock_guard<std::mutex> lock(g_modbus_mutex);
+  modbus_flush(g_modbus_ctx);
   modbus_set_slave(g_modbus_ctx, slave_id);
 
   std::cout << "\n>>> [MODBUS READ HOLDING REGISTER (FC 03)] Target Slave " << slave_id
@@ -471,8 +517,14 @@ bool modbus_read_holding_reg_val(int slave_id, int address, uint16_t &out_val) {
   uint16_t dest[1] = {0};
   int rc = modbus_read_registers(g_modbus_ctx, address, 1, dest);
   if (rc == -1) {
-    std::cerr << "[Modbus Read] Failed to read holding register " << address << ": "
-              << modbus_strerror(errno) << std::endl;
+    std::string err;
+    if (errno == ETIMEDOUT) {
+      err = "Connection timed out: No response received from Slave " + std::to_string(slave_id) + " for Holding Register " + std::to_string(address);
+    } else {
+      err = std::string("Failed to read holding register ") + std::to_string(address) + ": " + modbus_strerror(errno);
+    }
+    std::cerr << "[Modbus Read] " << err << std::endl;
+    set_last_modbus_error(err);
     return false;
   }
   out_val = dest[0];
@@ -498,6 +550,7 @@ bool modbus_read_holding_reg_val(int slave_id, int address, uint16_t &out_val) {
     g_telemetry.last_update = get_current_time_str();
   }
 
+  set_last_modbus_error("");
   return true;
 }
 
@@ -541,11 +594,14 @@ bool modbus_read_all(int slave_id) {
 
 bool modbus_write_coil(int slave_id, int address, bool state) {
   if (!is_modbus_ready()) {
-    std::cerr << "[Modbus Write] Error: Modbus context not initialized" << std::endl;
+    std::string err = "Modbus context not initialized (check if modbus_enabled is true in config.json)";
+    std::cerr << "[Modbus Write] Error: " << err << std::endl;
+    set_last_modbus_error(err);
     return false;
   }
   std::lock_guard<std::mutex> lock(g_modbus_mutex);
 
+  modbus_flush(g_modbus_ctx);
   modbus_set_slave(g_modbus_ctx, slave_id);
 
   std::cout << "\n>>> [MODBUS WRITE COIL (FC 05)] Target Slave " << slave_id
@@ -554,24 +610,43 @@ bool modbus_write_coil(int slave_id, int address, bool state) {
 
   int rc = modbus_write_bit(g_modbus_ctx, address, state ? 1 : 0);
   if (rc == -1) {
-    std::cerr << "[Modbus Write] Failed to write Coil " << address << ": "
-              << modbus_strerror(errno) << std::endl;
+    std::string err;
+    if (errno == ETIMEDOUT) {
+      err = "Connection timed out: No response received from Slave " + std::to_string(slave_id) + " over LoRa within timeout (verify slave is powered, on same RF frequency/SF, and matching Slave ID)";
+    } else {
+      err = std::string("Failed to write Coil ") + std::to_string(address) + ": " + modbus_strerror(errno);
+    }
+    std::cerr << "[Modbus Write] " << err << std::endl;
+    set_last_modbus_error(err);
     return false;
   }
 
   std::cout << ">>> [MODBUS WRITE COIL SUCCESS] Slave " << slave_id
             << " Coil 0x" << std::hex << address << std::dec << " set to "
             << (state ? "1 (ON)" : "0 (OFF)") << " <<<" << std::endl;
+
+  {
+    std::lock_guard<std::mutex> t_lock(g_telemetry_mutex);
+    g_telemetry.slave_id = slave_id;
+    if (address == 0) g_telemetry.valve1 = state ? 1 : 0;
+    else if (address == 1) g_telemetry.valve2 = state ? 1 : 0;
+    g_telemetry.last_update = get_current_time_str();
+  }
+
+  set_last_modbus_error("");
   return true;
 }
 
 bool modbus_write_holding_register(int slave_id, int address, uint16_t value) {
   if (!is_modbus_ready()) {
-    std::cerr << "[Modbus Write] Error: Modbus context not initialized" << std::endl;
+    std::string err = "Modbus context not initialized (check if modbus_enabled is true in config.json)";
+    std::cerr << "[Modbus Write] Error: " << err << std::endl;
+    set_last_modbus_error(err);
     return false;
   }
   std::lock_guard<std::mutex> lock(g_modbus_mutex);
 
+  modbus_flush(g_modbus_ctx);
   modbus_set_slave(g_modbus_ctx, slave_id);
 
   std::cout << "\n>>> [MODBUS WRITE REGISTER (FC 06)] Target Slave " << slave_id
@@ -580,24 +655,46 @@ bool modbus_write_holding_register(int slave_id, int address, uint16_t value) {
 
   int rc = modbus_write_register(g_modbus_ctx, address, value);
   if (rc == -1) {
-    std::cerr << "[Modbus Write] Failed to write Holding Register " << address << ": "
-              << modbus_strerror(errno) << std::endl;
+    std::string err;
+    if (errno == ETIMEDOUT) {
+      err = "Connection timed out: No response received from Slave " + std::to_string(slave_id) + " over LoRa within timeout (verify slave is powered, on same RF frequency/SF, and matching Slave ID)";
+    } else {
+      err = std::string("Failed to write Holding Register ") + std::to_string(address) + ": " + modbus_strerror(errno);
+    }
+    std::cerr << "[Modbus Write] " << err << std::endl;
+    set_last_modbus_error(err);
     return false;
   }
 
   std::cout << ">>> [MODBUS WRITE REGISTER SUCCESS] Slave " << slave_id
             << " Register 0x" << std::hex << address << std::dec << " written with "
             << value << " (0x" << std::hex << value << std::dec << ") <<<" << std::endl;
+
+  {
+    std::lock_guard<std::mutex> t_lock(g_telemetry_mutex);
+    g_telemetry.slave_id = slave_id;
+    switch (address) {
+      case 4: g_telemetry.valve1_reg = value; break;
+      case 5: g_telemetry.valve2_reg = value; break;
+      case 8: g_telemetry.slave_id_reg = value; break;
+    }
+    g_telemetry.last_update = get_current_time_str();
+  }
+
+  set_last_modbus_error("");
   return true;
 }
 
 bool modbus_write_multiple_coils(int slave_id, int address, int count, const uint8_t *values) {
   if (!is_modbus_ready() || values == nullptr || count <= 0) {
-    std::cerr << "[Modbus Write] Error: Invalid parameters or context not initialized" << std::endl;
+    std::string err = "Invalid parameters or context not initialized";
+    std::cerr << "[Modbus Write] Error: " << err << std::endl;
+    set_last_modbus_error(err);
     return false;
   }
   std::lock_guard<std::mutex> lock(g_modbus_mutex);
 
+  modbus_flush(g_modbus_ctx);
   modbus_set_slave(g_modbus_ctx, slave_id);
 
   std::cout << "\n>>> [MODBUS WRITE MULTIPLE COILS (FC 15)] Target Slave " << slave_id
@@ -605,23 +702,33 @@ bool modbus_write_multiple_coils(int slave_id, int address, int count, const uin
 
   int rc = modbus_write_bits(g_modbus_ctx, address, count, values);
   if (rc == -1) {
-    std::cerr << "[Modbus Write] Failed to write multiple coils starting at " << address << ": "
-              << modbus_strerror(errno) << std::endl;
+    std::string err;
+    if (errno == ETIMEDOUT) {
+      err = "Connection timed out: No response received from Slave " + std::to_string(slave_id) + " over LoRa within timeout";
+    } else {
+      err = std::string("Failed to write multiple coils starting at ") + std::to_string(address) + ": " + modbus_strerror(errno);
+    }
+    std::cerr << "[Modbus Write] " << err << std::endl;
+    set_last_modbus_error(err);
     return false;
   }
 
   std::cout << ">>> [MODBUS WRITE MULTIPLE COILS SUCCESS] Slave " << slave_id
             << " wrote " << count << " coils starting at 0x" << std::hex << address << std::dec << " <<<" << std::endl;
+  set_last_modbus_error("");
   return true;
 }
 
 bool modbus_write_multiple_holding_registers(int slave_id, int address, int count, const uint16_t *values) {
   if (!is_modbus_ready() || values == nullptr || count <= 0) {
-    std::cerr << "[Modbus Write] Error: Invalid parameters or context not initialized" << std::endl;
+    std::string err = "Invalid parameters or context not initialized";
+    std::cerr << "[Modbus Write] Error: " << err << std::endl;
+    set_last_modbus_error(err);
     return false;
   }
   std::lock_guard<std::mutex> lock(g_modbus_mutex);
 
+  modbus_flush(g_modbus_ctx);
   modbus_set_slave(g_modbus_ctx, slave_id);
 
   std::cout << "\n>>> [MODBUS WRITE MULTIPLE REGISTERS (FC 16)] Target Slave " << slave_id
@@ -629,19 +736,28 @@ bool modbus_write_multiple_holding_registers(int slave_id, int address, int coun
 
   int rc = modbus_write_registers(g_modbus_ctx, address, count, values);
   if (rc == -1) {
-    std::cerr << "[Modbus Write] Failed to write multiple registers starting at " << address << ": "
-              << modbus_strerror(errno) << std::endl;
+    std::string err;
+    if (errno == ETIMEDOUT) {
+      err = "Connection timed out: No response received from Slave " + std::to_string(slave_id) + " over LoRa within timeout";
+    } else {
+      err = std::string("Failed to write multiple registers starting at ") + std::to_string(address) + ": " + modbus_strerror(errno);
+    }
+    std::cerr << "[Modbus Write] " << err << std::endl;
+    set_last_modbus_error(err);
     return false;
   }
 
   std::cout << ">>> [MODBUS WRITE MULTIPLE REGISTERS SUCCESS] Slave " << slave_id
             << " wrote " << count << " registers starting at 0x" << std::hex << address << std::dec << " <<<" << std::endl;
+  set_last_modbus_error("");
   return true;
 }
 
 bool modbus_write_valve(int slave_id, int valve_index, bool open) {
   if (valve_index < 1 || valve_index > 2) {
-    std::cerr << "[Modbus Write] Invalid valve index " << valve_index << " (must be 1 or 2)" << std::endl;
+    std::string err = "Invalid valve index " + std::to_string(valve_index) + " (must be 1 or 2)";
+    std::cerr << "[Modbus Write] " << err << std::endl;
+    set_last_modbus_error(err);
     return false;
   }
   int coil_addr = valve_index - 1; // Valve 1 = Coil 0, Valve 2 = Coil 1
@@ -650,9 +766,12 @@ bool modbus_write_valve(int slave_id, int valve_index, bool open) {
 
 bool modbus_write_remote_slave_id(int current_slave_id, int new_slave_id) {
   if (new_slave_id < 1 || new_slave_id > 247) {
-    std::cerr << "[Modbus Write] Invalid new slave ID " << new_slave_id << " (must be 1-247)" << std::endl;
+    std::string err = "Invalid new slave ID " + std::to_string(new_slave_id) + " (must be 1-247)";
+    std::cerr << "[Modbus Write] " << err << std::endl;
+    set_last_modbus_error(err);
     return false;
   }
   return modbus_write_holding_register(current_slave_id, 8, (uint16_t)new_slave_id);
 }
+
 
