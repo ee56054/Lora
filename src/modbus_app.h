@@ -57,5 +57,45 @@ bool modbus_write_valve(int slave_id, int valve_index, bool open);
 // Convenience: configure remote Slave ID via Holding Register 8 (FC 06)
 bool modbus_write_remote_slave_id(int current_slave_id, int new_slave_id);
 
+// --- Modbus Read Functions & Telemetry ---
+
+struct ModbusTelemetry {
+  int slave_id = 1;
+  int valve1 = -1;         // Coil 0 (-1: unknown, 0: OFF, 1: ON)
+  int valve2 = -1;         // Coil 1
+  int valve1_status = -1;  // Discrete Input 0
+  int valve2_status = -1;  // Discrete Input 1
+  int sensor1 = -1;        // Input Reg 0
+  int sensor2 = -1;        // Input Reg 1
+  int hw_id_high = -1;     // Holding Reg 0
+  int hw_id_low = -1;      // Holding Reg 1
+  int tx_count_high = -1;  // Holding Reg 2
+  int tx_count_low = -1;   // Holding Reg 3
+  int valve1_reg = -1;     // Holding Reg 4
+  int valve2_reg = -1;     // Holding Reg 5
+  int sensor1_reg = -1;    // Holding Reg 6
+  int sensor2_reg = -1;    // Holding Reg 7
+  int slave_id_reg = -1;   // Holding Reg 8
+  std::string last_update = "Never";
+};
+
+// Read a single coil (FC 01)
+bool modbus_read_coil_val(int slave_id, int address, bool &out_val);
+
+// Read a single discrete input (FC 02)
+bool modbus_read_discrete_input_val(int slave_id, int address, bool &out_val);
+
+// Read a single input register (FC 04)
+bool modbus_read_input_reg_val(int slave_id, int address, uint16_t &out_val);
+
+// Read a single holding register (FC 03)
+bool modbus_read_holding_reg_val(int slave_id, int address, uint16_t &out_val);
+
+// Read all mapped telemetry for a slave
+bool modbus_read_all(int slave_id);
+
+// Retrieve latest telemetry cache
+ModbusTelemetry get_modbus_telemetry();
+
 #endif // MODBUS_APP_H
 

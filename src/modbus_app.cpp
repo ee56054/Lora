@@ -297,6 +297,26 @@ void modbus_print_packet_value(const uint8_t *payload, uint8_t payload_len) {
   }
 }
 
+// Global telemetry state
+static ModbusTelemetry g_telemetry;
+static std::mutex g_telemetry_mutex;
+
+static std::string get_current_time_str() {
+  time_t now = time(nullptr);
+  char buf[64];
+  struct tm *tm_info = localtime(&now);
+  if (tm_info) {
+    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", tm_info);
+    return std::string(buf);
+  }
+  return "Unknown";
+}
+
+ModbusTelemetry get_modbus_telemetry() {
+  std::lock_guard<std::mutex> lock(g_telemetry_mutex);
+  return g_telemetry;
+}
+
 void run_modbus_loop(sx126x_mod_params_lora_t *mod_params,
                      sx126x_pkt_params_lora_t *pkt_params) {
   if (!is_modbus_ready()) {
@@ -304,15 +324,15 @@ void run_modbus_loop(sx126x_mod_params_lora_t *mod_params,
     return;
   }
 
-  std::cout << "\n-- LoRa Transceiver (Modbus Master) --\n" << std::endl;
+  std::cout << "\n-- LoRa Transceiver (Modbus Continuous Listening Mode) --\n" << std::endl;
 
   if (!initialize_receiver(mod_params, pkt_params)) {
     std::cerr << "Failed to initialize receiver mode" << std::endl;
     return;
   }
 
-  std::cout << "Transceiver initialized. Polling each Modbus address..."
-            << std::endl;
+  std::cout << "Transceiver initialized in continuous listening mode." << std::endl;
+  std::cout << "Modbus polling loop is STOPPED. Read & Write operations are ready on-demand via Web UI / API." << std::endl;
 
   time_t last_config_time = 0;
   struct stat st;
@@ -326,80 +346,195 @@ void run_modbus_loop(sx126x_mod_params_lora_t *mod_params,
       return;
     }
 
-    std::vector<int> devices = g_config.modbus_address_devices;
-    if (devices.empty()) {
-      devices.push_back(g_config.modbus_slave_id > 0 ? g_config.modbus_slave_id : 1);
-    }
-
-    for (int device_id : devices) {
-      for (const auto &target : g_modbus_poll_targets) {
-        if (stat("config.json", &st) == 0 && st.st_mtime > last_config_time) {
-          std::cout << "\nconfig.json modified! Reloading application..." << std::endl;
-          return;
-        }
-
-        std::cout << "\n--- Reading Device " << device_id << " Address 0x"
-                  << std::hex << target.address << " (" << std::dec << target.address << ") : "
-                  << target.name << " [" << target.fc_str << "] ---" << std::endl;
-
-        int rc = -1;
-        {
-          std::lock_guard<std::mutex> lock(g_modbus_mutex);
-          modbus_set_slave(g_modbus_ctx, device_id);
-
-          if (target.type == MODBUS_TABLE_COIL) {
-            uint8_t dest[1] = {0};
-            rc = modbus_read_bits(g_modbus_ctx, target.address, 1, dest);
-            if (rc == -1) {
-              std::cerr << "Failed to read Coil " << target.address << " (" << target.name << "): "
-                        << modbus_strerror(errno) << std::endl;
-            } else {
-              std::cout << ">>> [MODBUS RECEIVED VALUE] Device " << device_id << " " << target.name
-                        << " (Coil 0x" << std::hex << target.address << std::dec << "): "
-                        << (dest[0] ? "1 (Open/ON)" : "0 (Closed/OFF)")
-                        << " <<<" << std::endl;
-            }
-          } else if (target.type == MODBUS_TABLE_DISCRETE_INPUT) {
-            uint8_t dest[1] = {0};
-            rc = modbus_read_input_bits(g_modbus_ctx, target.address, 1, dest);
-            if (rc == -1) {
-              std::cerr << "Failed to read Discrete Input " << target.address << " (" << target.name << "): "
-                        << modbus_strerror(errno) << std::endl;
-            } else {
-              std::cout << ">>> [MODBUS RECEIVED VALUE] Device " << device_id << " " << target.name
-                        << " (Discrete Input 0x" << std::hex << target.address << std::dec << "): "
-                        << (dest[0] ? "1 (Open)" : "0 (Closed)")
-                        << " <<<" << std::endl;
-            }
-          } else if (target.type == MODBUS_TABLE_INPUT_REG) {
-            uint16_t dest[1] = {0};
-            rc = modbus_read_input_registers(g_modbus_ctx, target.address, 1, dest);
-            if (rc == -1) {
-              std::cerr << "Failed to read Input Register " << target.address << " (" << target.name << "): "
-                        << modbus_strerror(errno) << std::endl;
-            } else {
-              std::cout << ">>> [MODBUS RECEIVED VALUE] Device " << device_id << " " << target.name
-                        << " (Input Reg 0x" << std::hex << target.address << std::dec << "): "
-                        << dest[0] << " (0x" << std::hex << dest[0] << std::dec << ") <<<" << std::endl;
-            }
-          } else if (target.type == MODBUS_TABLE_HOLDING_REG) {
-            uint16_t dest[1] = {0};
-            rc = modbus_read_registers(g_modbus_ctx, target.address, 1, dest);
-            if (rc == -1) {
-              std::cerr << "Failed to read Holding Register " << target.address << " (" << target.name << "): "
-                        << modbus_strerror(errno) << std::endl;
-            } else {
-              std::cout << ">>> [MODBUS RECEIVED VALUE] Device " << device_id << " " << target.name
-                        << " (Holding Reg 0x" << std::hex << target.address << std::dec << "): "
-                        << dest[0] << " (0x" << std::hex << dest[0] << std::dec << ") <<<" << std::endl;
-            }
-          }
-        }
-
-        usleep(5000000); // 5 second delay between requests
-      }
-    }
+    usleep(100000); // 100ms idle wait, continuous RX active
   }
+}
+
+// --- Modbus Read Functions Implementation ---
+
+bool modbus_read_coil_val(int slave_id, int address, bool &out_val) {
+  if (!is_modbus_ready()) {
+    std::cerr << "[Modbus Read] Error: Modbus context not initialized" << std::endl;
+    return false;
+  }
+  std::lock_guard<std::mutex> lock(g_modbus_mutex);
+  modbus_set_slave(g_modbus_ctx, slave_id);
+
+  std::cout << "\n>>> [MODBUS READ COIL (FC 01)] Target Slave " << slave_id
+            << ", Address 0x" << std::hex << address << std::dec << " (" << address << ") <<<" << std::endl;
+
+  uint8_t dest[1] = {0};
+  int rc = modbus_read_bits(g_modbus_ctx, address, 1, dest);
+  if (rc == -1) {
+    std::cerr << "[Modbus Read] Failed to read coil " << address << ": "
+              << modbus_strerror(errno) << std::endl;
+    return false;
+  }
+  out_val = (dest[0] != 0);
+
+  std::cout << ">>> [MODBUS READ COIL SUCCESS] Slave " << slave_id << " Coil 0x"
+            << std::hex << address << std::dec << " = " << (out_val ? "1 (Open/ON)" : "0 (Closed/OFF)")
+            << " <<<" << std::endl;
+
+  {
+    std::lock_guard<std::mutex> t_lock(g_telemetry_mutex);
+    g_telemetry.slave_id = slave_id;
+    if (address == 0) g_telemetry.valve1 = out_val ? 1 : 0;
+    else if (address == 1) g_telemetry.valve2 = out_val ? 1 : 0;
+    g_telemetry.last_update = get_current_time_str();
+  }
+
+  return true;
+}
+
+bool modbus_read_discrete_input_val(int slave_id, int address, bool &out_val) {
+  if (!is_modbus_ready()) {
+    std::cerr << "[Modbus Read] Error: Modbus context not initialized" << std::endl;
+    return false;
+  }
+  std::lock_guard<std::mutex> lock(g_modbus_mutex);
+  modbus_set_slave(g_modbus_ctx, slave_id);
+
+  std::cout << "\n>>> [MODBUS READ DISCRETE INPUT (FC 02)] Target Slave " << slave_id
+            << ", Address 0x" << std::hex << address << std::dec << " (" << address << ") <<<" << std::endl;
+
+  uint8_t dest[1] = {0};
+  int rc = modbus_read_input_bits(g_modbus_ctx, address, 1, dest);
+  if (rc == -1) {
+    std::cerr << "[Modbus Read] Failed to read discrete input " << address << ": "
+              << modbus_strerror(errno) << std::endl;
+    return false;
+  }
+  out_val = (dest[0] != 0);
+
+  std::cout << ">>> [MODBUS READ DISCRETE INPUT SUCCESS] Slave " << slave_id << " Input 0x"
+            << std::hex << address << std::dec << " = " << (out_val ? "1 (Open)" : "0 (Closed)")
+            << " <<<" << std::endl;
+
+  {
+    std::lock_guard<std::mutex> t_lock(g_telemetry_mutex);
+    g_telemetry.slave_id = slave_id;
+    if (address == 0) g_telemetry.valve1_status = out_val ? 1 : 0;
+    else if (address == 1) g_telemetry.valve2_status = out_val ? 1 : 0;
+    g_telemetry.last_update = get_current_time_str();
+  }
+
+  return true;
+}
+
+bool modbus_read_input_reg_val(int slave_id, int address, uint16_t &out_val) {
+  if (!is_modbus_ready()) {
+    std::cerr << "[Modbus Read] Error: Modbus context not initialized" << std::endl;
+    return false;
+  }
+  std::lock_guard<std::mutex> lock(g_modbus_mutex);
+  modbus_set_slave(g_modbus_ctx, slave_id);
+
+  std::cout << "\n>>> [MODBUS READ INPUT REGISTER (FC 04)] Target Slave " << slave_id
+            << ", Address 0x" << std::hex << address << std::dec << " (" << address << ") <<<" << std::endl;
+
+  uint16_t dest[1] = {0};
+  int rc = modbus_read_input_registers(g_modbus_ctx, address, 1, dest);
+  if (rc == -1) {
+    std::cerr << "[Modbus Read] Failed to read input register " << address << ": "
+              << modbus_strerror(errno) << std::endl;
+    return false;
+  }
+  out_val = dest[0];
+
+  std::cout << ">>> [MODBUS READ INPUT REGISTER SUCCESS] Slave " << slave_id << " Input Reg 0x"
+            << std::hex << address << std::dec << " = " << out_val << " (0x"
+            << std::hex << out_val << std::dec << ") <<<" << std::endl;
+
+  {
+    std::lock_guard<std::mutex> t_lock(g_telemetry_mutex);
+    g_telemetry.slave_id = slave_id;
+    if (address == 0) g_telemetry.sensor1 = out_val;
+    else if (address == 1) g_telemetry.sensor2 = out_val;
+    g_telemetry.last_update = get_current_time_str();
+  }
+
+  return true;
+}
+
+bool modbus_read_holding_reg_val(int slave_id, int address, uint16_t &out_val) {
+  if (!is_modbus_ready()) {
+    std::cerr << "[Modbus Read] Error: Modbus context not initialized" << std::endl;
+    return false;
+  }
+  std::lock_guard<std::mutex> lock(g_modbus_mutex);
+  modbus_set_slave(g_modbus_ctx, slave_id);
+
+  std::cout << "\n>>> [MODBUS READ HOLDING REGISTER (FC 03)] Target Slave " << slave_id
+            << ", Address 0x" << std::hex << address << std::dec << " (" << address << ") <<<" << std::endl;
+
+  uint16_t dest[1] = {0};
+  int rc = modbus_read_registers(g_modbus_ctx, address, 1, dest);
+  if (rc == -1) {
+    std::cerr << "[Modbus Read] Failed to read holding register " << address << ": "
+              << modbus_strerror(errno) << std::endl;
+    return false;
+  }
+  out_val = dest[0];
+
+  std::cout << ">>> [MODBUS READ HOLDING REGISTER SUCCESS] Slave " << slave_id << " Holding Reg 0x"
+            << std::hex << address << std::dec << " = " << out_val << " (0x"
+            << std::hex << out_val << std::dec << ") <<<" << std::endl;
+
+  {
+    std::lock_guard<std::mutex> t_lock(g_telemetry_mutex);
+    g_telemetry.slave_id = slave_id;
+    switch (address) {
+      case 0: g_telemetry.hw_id_high = out_val; break;
+      case 1: g_telemetry.hw_id_low = out_val; break;
+      case 2: g_telemetry.tx_count_high = out_val; break;
+      case 3: g_telemetry.tx_count_low = out_val; break;
+      case 4: g_telemetry.valve1_reg = out_val; break;
+      case 5: g_telemetry.valve2_reg = out_val; break;
+      case 6: g_telemetry.sensor1_reg = out_val; break;
+      case 7: g_telemetry.sensor2_reg = out_val; break;
+      case 8: g_telemetry.slave_id_reg = out_val; break;
+    }
+    g_telemetry.last_update = get_current_time_str();
+  }
+
+  return true;
+}
+
+bool modbus_read_all(int slave_id) {
+  std::cout << "\n========================================" << std::endl;
+  std::cout << ">>> [MODBUS READ ALL] Reading full telemetry for Slave " << slave_id << " <<<" << std::endl;
+  std::cout << "========================================" << std::endl;
+
+  bool b_val = false;
+  uint16_t reg_val = 0;
+
+  // 1. Read Coils (Valves 1 & 2)
+  modbus_read_coil_val(slave_id, 0, b_val);
+  usleep(50000);
+  modbus_read_coil_val(slave_id, 1, b_val);
+  usleep(50000);
+
+  // 2. Read Discrete Inputs (Valve Status 1 & 2)
+  modbus_read_discrete_input_val(slave_id, 0, b_val);
+  usleep(50000);
+  modbus_read_discrete_input_val(slave_id, 1, b_val);
+  usleep(50000);
+
+  // 3. Read Input Registers (Sensors 1 & 2)
+  modbus_read_input_reg_val(slave_id, 0, reg_val);
+  usleep(50000);
+  modbus_read_input_reg_val(slave_id, 1, reg_val);
+  usleep(50000);
+
+  // 4. Read Holding Registers 0..8
+  for (int addr = 0; addr <= 8; addr++) {
+    modbus_read_holding_reg_val(slave_id, addr, reg_val);
+    usleep(50000);
+  }
+
+  std::cout << "\n>>> [MODBUS READ ALL COMPLETED] Slave " << slave_id << " <<<\n" << std::endl;
+  return true;
 }
 
 // --- Modbus Write Functions Implementation ---
