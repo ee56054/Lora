@@ -31,5 +31,11 @@ void run_modbus_loop(sx126x_mod_params_lora_t *mod_params, sx126x_pkt_params_lor
 // Clean up and close Modbus context
 void cleanup_modbus();
 
+// Calculate Modbus RTU CRC-16
+uint16_t modbus_crc16(const uint8_t *buffer, uint16_t buffer_length);
+
+// Decode and display received Modbus frame details and values
+void modbus_print_packet_value(const uint8_t *payload, uint8_t payload_len);
+
 #endif // MODBUS_APP_H
 

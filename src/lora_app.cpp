@@ -82,9 +82,6 @@ void dio1_interrupt_handler(void) {
                 << (int)payload_len << " bytes:" << std::endl;
       std::cout << "  RSSI: " << (int)rssi << " dBm, SNR: " << (int)snr << " dB"
                 << std::endl;
-      std::cout << "  Data: " << payload << std::endl;
-      std::cout << "  Data: ";
-
       // Print payload as string (if printable) or hex
       bool all_printable = true;
       for (uint8_t i = 0; i < payload_len; i++) {
@@ -94,6 +91,7 @@ void dio1_interrupt_handler(void) {
         }
       }
 
+      std::cout << "  Data: ";
       if (all_printable) {
         for (uint8_t i = 0; i < payload_len; i++) {
           std::cout << (char)payload[i];
@@ -109,6 +107,7 @@ void dio1_interrupt_handler(void) {
       sx126x_clear_irq_status(NULL, SX126X_IRQ_RX_DONE);
 
       if (g_config.modbus_enabled) {
+        modbus_print_packet_value(payload, payload_len);
         modbus_queue_rx_packet(payload, payload_len);
       }
     } else {
