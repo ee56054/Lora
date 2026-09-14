@@ -1,7 +1,7 @@
 #include "config.h"
 #include "hal.h"
-#include "modbus.h"
-#include "modbus_lora.h"
+#include "lora_app.h"
+#include "modbus_app.h"
 #include "sx126x.h"
 #include "sx126x_hal.h"
 #include <cstring>
@@ -10,9 +10,8 @@
 #include <sys/stat.h>
 #include <thread>
 #include <chrono>
+#include <mutex>
 #include "web_server.h"
-
-modbus_t *g_modbus_ctx = nullptr;
 
 // LoRa configuration constants
 #define FREQUENCY g_config.frequency
@@ -23,17 +22,6 @@ modbus_t *g_modbus_ctx = nullptr;
 #define PREAMBLE_LENGTH g_config.preamble_length
 #define RX_TIMEOUT g_config.rx_timeout
 
-// Globals for echo server
-#include <mutex>
-#include <queue>
-#include <vector>
-
-struct RxMessage {
-  std::vector<uint8_t> data;
-};
-
-std::queue<RxMessage> message_queue;
-std::mutex queue_mutex;
 std::recursive_mutex g_lora_mutex;
 
 // Forward declaration of transmit
@@ -121,11 +109,7 @@ void dio1_interrupt_handler(void) {
       sx126x_clear_irq_status(NULL, SX126X_IRQ_RX_DONE);
 
       if (g_config.modbus_enabled) {
-        // Copy to message queue for Modbus processing
-        std::lock_guard<std::mutex> q_lock(queue_mutex);
-        RxMessage msg;
-        msg.data.assign(payload, payload + payload_len);
-        message_queue.push(msg);
+        modbus_queue_rx_packet(payload, payload_len);
       }
     } else {
       // Clear RX_DONE IRQ if buffer read failed
@@ -262,99 +246,51 @@ void transceiver_loop(sx126x_mod_params_lora_t *mod_params,
     last_config_time = st.st_mtime;
   }
 
-  if (g_config.modbus_enabled && g_modbus_ctx != nullptr) {
-    std::cout << "\n-- LoRa Transceiver (Modbus Master) --\n" << std::endl;
+  if (g_config.modbus_enabled && is_modbus_ready()) {
+    run_modbus_loop(mod_params, pkt_params);
+    return;
+  }
 
-    if (!initialize_receiver(mod_params, pkt_params)) {
-      std::cerr << "Failed to initialize receiver mode" << std::endl;
+  std::cout << "\n-- LoRa Transceiver --\n" << std::endl;
+
+  if (!initialize_receiver(mod_params, pkt_params)) {
+    std::cerr << "Failed to initialize receiver mode" << std::endl;
+    return;
+  }
+
+  std::cout
+      << "Transceiver initialized. Listening for packets and transmitting every 5 sec..."
+      << std::endl;
+
+  auto last_tx_time = std::chrono::steady_clock::now();
+  uint32_t tx_counter = 0;
+
+  while (true) {
+    if (stat("config.json", &st) == 0 && st.st_mtime > last_config_time) {
+      std::cout << "\nconfig.json modified! Reloading application..." << std::endl;
       return;
     }
 
-    std::cout << "Transceiver initialized. Polling Modbus registers..."
-              << std::endl;
-
-    while (true) {
-      if (stat("config.json", &st) == 0 && st.st_mtime > last_config_time) {
-        std::cout << "\nconfig.json modified! Reloading application..." << std::endl;
-        return;
-      }
-
-      std::vector<int> devices = g_config.modbus_address_devices;
-      if (devices.empty()) {
-        devices.push_back(g_config.modbus_slave_id > 0 ? g_config.modbus_slave_id : 1);
-      }
-
-      for (int device_id : devices) {
-        if (stat("config.json", &st) == 0 && st.st_mtime > last_config_time) {
-          std::cout << "\nconfig.json modified! Reloading application..." << std::endl;
-          return;
-        }
-
-        uint16_t dest[1] = {0};
-        // Set the target slave/device address for this poll
-        modbus_set_slave(g_modbus_ctx, device_id);
-
-        int reg_to_read = 100; // Hardcoded test register
-        std::cout << "\n--- Reading Register " << reg_to_read
-                  << " from Device " << device_id << " ---" << std::endl;
-
-        int rc = modbus_read_registers(g_modbus_ctx, reg_to_read, 1, dest);
-        if (rc == -1) {
-          std::cerr << "Failed to read device " << device_id << ": "
-                    << modbus_strerror(errno) << std::endl;
-        } else {
-          std::cout << ">>> Device " << device_id << " Register "
-                    << reg_to_read << " value: " << dest[0] << " <<<"
-                    << std::endl;
-        }
-
-        usleep(5000000); // 5 second delay between polls
-      }
-    }
-  } else {
-    std::cout << "\n-- LoRa Transceiver --\n" << std::endl;
-
-    if (!initialize_receiver(mod_params, pkt_params)) {
-      std::cerr << "Failed to initialize receiver mode" << std::endl;
-      return;
-    }
-
-    std::cout
-        << "Transceiver initialized. Listening for packets and transmitting every 5 sec..."
-        << std::endl;
-
-    auto last_tx_time = std::chrono::steady_clock::now();
-    uint32_t tx_counter = 0;
-
-    while (true) {
-      if (stat("config.json", &st) == 0 && st.st_mtime > last_config_time) {
-        std::cout << "\nconfig.json modified! Reloading application..." << std::endl;
-        return;
-      }
-
-      // Transmit every 5 seconds
-      auto now = std::chrono::steady_clock::now();
-      if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_tx_time).count() >= 5000) {
-        last_tx_time = now;
-        std::lock_guard<std::recursive_mutex> lock(g_lora_mutex);
-        if (!sx126x_is_busy()) {
-          char tx_payload[64];
-          int tx_len = snprintf(tx_payload, sizeof(tx_payload), "HeLoRa World! %u", tx_counter++);
-          std::cout << "\n--- Periodic Transmission (every 5s) ---" << std::endl;
-          if (!transmit((const uint8_t *)tx_payload, tx_len, pkt_params)) {
-            std::cerr << "Periodic transmission failed!" << std::endl;
-          }
+    // Transmit every 5 seconds
+    auto now = std::chrono::steady_clock::now();
+    if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_tx_time).count() >= 5000) {
+      last_tx_time = now;
+      std::lock_guard<std::recursive_mutex> lock(g_lora_mutex);
+      if (!sx126x_is_busy()) {
+        char tx_payload[64];
+        int tx_len = snprintf(tx_payload, sizeof(tx_payload), "HeLoRa World! %u", tx_counter++);
+        std::cout << "\n--- Periodic Transmission (every 5s) ---" << std::endl;
+        if (!transmit((const uint8_t *)tx_payload, tx_len, pkt_params)) {
+          std::cerr << "Periodic transmission failed!" << std::endl;
         }
       }
-
-      usleep(50000); // 50ms sleep to check timer and config smoothly
     }
+
+    usleep(50000); // 50ms sleep to check timer and config smoothly
   }
 }
 
 #include "diagnostics.h"
-
-#include "lora_app.h"
 
 int run_lora_app() {
   static bool web_server_started = false;
@@ -521,22 +457,7 @@ int run_lora_app() {
   g_pkt_params = &pkt_params;
 
   if (g_config.modbus_enabled) {
-    std::cout << "\nInitializing Custom Modbus LoRa Backend..." << std::endl;
-    g_modbus_ctx = modbus_new_lora(&pkt_params);
-    if (g_modbus_ctx == nullptr) {
-      std::cerr << "Unable to create the libmodbus LoRa context\n" << std::endl;
-    } else {
-      modbus_set_slave(g_modbus_ctx, g_config.modbus_slave_id);
-      modbus_set_response_timeout(g_modbus_ctx, 3, 0);
-      if (modbus_connect(g_modbus_ctx) == -1) {
-        std::cerr << "Modbus connection failed: " << modbus_strerror(errno)
-                  << std::endl;
-        modbus_free(g_modbus_ctx);
-        g_modbus_ctx = nullptr;
-      } else {
-        std::cout << "Modbus LoRa backend connected successfully" << std::endl;
-      }
-    }
+    init_modbus(&pkt_params);
   }
 
   sx126x_pa_cfg_params_t pa_cfg = {0};
@@ -584,11 +505,7 @@ int run_lora_app() {
   set_rf_switch_rx();
   spi_close();
 
-  if (g_modbus_ctx != nullptr) {
-    modbus_close(g_modbus_ctx);
-    modbus_free(g_modbus_ctx);
-    g_modbus_ctx = nullptr;
-  }
+  cleanup_modbus();
   
   std::cout << "\nRestarting application to apply new configuration...\n" << std::endl;
   usleep(1000000); // 1 second

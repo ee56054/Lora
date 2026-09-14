@@ -8,13 +8,8 @@
 #include <iostream>
 #include <cerrno>
 
-// External declarations to access lora_app's queue and transmit function
-struct RxMessage {
-  std::vector<uint8_t> data;
-};
-extern std::queue<RxMessage> message_queue;
-extern std::mutex queue_mutex;
-extern bool transmit(const uint8_t *payload, uint8_t size, sx126x_pkt_params_lora_t *pkt_params);
+#include "modbus_app.h"
+#include "lora_app.h"
 
 struct modbus_lora_data_t {
     sx126x_pkt_params_lora_t *pkt_params;

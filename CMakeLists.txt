@@ -71,7 +71,7 @@ if(NOT libmodbus_POPULATED)
 endif()
 
 # Add executable
-add_executable(lora_app src/main.cpp src/hal.cpp src/lora_app.cpp src/config.cpp src/diagnostics.cpp src/modbus_lora.cpp src/web_server.cpp)
+add_executable(lora_app src/main.cpp src/hal.cpp src/lora_app.cpp src/config.cpp src/diagnostics.cpp src/modbus_lora.cpp src/modbus_app.cpp src/web_server.cpp)
 
 # Include directories for the driver and wiringOP
 target_include_directories(lora_app PRIVATE 
