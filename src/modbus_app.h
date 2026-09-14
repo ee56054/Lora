@@ -37,5 +37,25 @@ uint16_t modbus_crc16(const uint8_t *buffer, uint16_t buffer_length);
 // Decode and display received Modbus frame details and values
 void modbus_print_packet_value(const uint8_t *payload, uint8_t payload_len);
 
+// --- Modbus Write Functions ---
+
+// Write a single coil (FC 05) - state: true (1/ON) or false (0/OFF)
+bool modbus_write_coil(int slave_id, int address, bool state);
+
+// Write a single holding register (FC 06)
+bool modbus_write_holding_register(int slave_id, int address, uint16_t value);
+
+// Write multiple coils (FC 15)
+bool modbus_write_multiple_coils(int slave_id, int address, int count, const uint8_t *values);
+
+// Write multiple holding registers (FC 16)
+bool modbus_write_multiple_holding_registers(int slave_id, int address, int count, const uint16_t *values);
+
+// Convenience: control Valve 1 or Valve 2 via FC 05 (valve_index: 1 or 2, open: true/false)
+bool modbus_write_valve(int slave_id, int valve_index, bool open);
+
+// Convenience: configure remote Slave ID via Holding Register 8 (FC 06)
+bool modbus_write_remote_slave_id(int current_slave_id, int new_slave_id);
+
 #endif // MODBUS_APP_H
 

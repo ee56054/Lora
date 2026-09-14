@@ -1,4 +1,5 @@
 #include "web_server.h"
+#include "modbus_app.h"
 #include <httplib.h>
 #include <iostream>
 #include <fstream>
@@ -214,6 +215,46 @@ static const char* HTML_PAGE = R"RAW(
                 <button type="submit">Save & Reload Device</button>
             </form>
         </div>
+
+        <div class="card" style="margin-top: 1.5rem;">
+            <h1>Modbus Controls (Write)</h1>
+            
+            <div class="form-group">
+                <label>Target Slave ID</label>
+                <input type="number" id="ctrl_slave_id" value="1" min="1" max="247">
+            </div>
+
+            <label style="margin-top: 1.25rem;">Valve Control (Coils 0 & 1 via FC 05)</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+                <div style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px; border: 1px solid var(--border);">
+                    <div style="font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">Valve 1 (Coil 0x0)</div>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button type="button" style="margin-top: 0; background: #10b981; padding: 0.6rem;" onclick="setValve(1, true)">Open (1)</button>
+                        <button type="button" style="margin-top: 0; background: #ef4444; padding: 0.6rem;" onclick="setValve(1, false)">Close (0)</button>
+                    </div>
+                </div>
+                <div style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px; border: 1px solid var(--border);">
+                    <div style="font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">Valve 2 (Coil 0x1)</div>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button type="button" style="margin-top: 0; background: #10b981; padding: 0.6rem;" onclick="setValve(2, true)">Open (1)</button>
+                        <button type="button" style="margin-top: 0; background: #ef4444; padding: 0.6rem;" onclick="setValve(2, false)">Close (0)</button>
+                    </div>
+                </div>
+            </div>
+
+            <label>Write Holding Register (FC 06)</label>
+            <div style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px; border: 1px solid var(--border); display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.75rem; align-items: end;">
+                <div class="form-group" style="margin: 0;">
+                    <label style="font-size: 0.75rem;">Register Addr</label>
+                    <input type="number" id="write_reg_addr" value="8" placeholder="e.g. 8 for Slave ID">
+                </div>
+                <div class="form-group" style="margin: 0;">
+                    <label style="font-size: 0.75rem;">Value (16-bit)</label>
+                    <input type="number" id="write_reg_val" value="1" placeholder="Value">
+                </div>
+                <button type="button" style="margin-top: 0; padding: 0.85rem 1.25rem; width: auto;" onclick="writeRegister()">Send Write</button>
+            </div>
+        </div>
     </div>
     <div id="toast" class="toast">Configuration saved successfully!</div>
 
@@ -228,8 +269,49 @@ static const char* HTML_PAGE = R"RAW(
                 document.getElementById('coding_rate').value = data.coding_rate || '4/6';
                 document.getElementById('modbus_enabled').checked = (data.modbus_enabled !== undefined) ? data.modbus_enabled : true;
                 document.getElementById('modbus_slave_id').value = data.modbus_slave_id || 1;
+                document.getElementById('ctrl_slave_id').value = data.modbus_slave_id || 1;
                 document.getElementById('modbus_address_devices').value = (data.modbus_address_devices && data.modbus_address_devices.length > 0) ? data.modbus_address_devices.join(', ') : '1';
             });
+
+        function showToast(msg, isSuccess = true) {
+            const toast = document.getElementById('toast');
+            toast.innerText = msg;
+            toast.style.background = isSuccess ? 'var(--success)' : '#ef4444';
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        function setValve(valveIndex, open) {
+            const slaveId = parseInt(document.getElementById('ctrl_slave_id').value) || 1;
+            fetch('/api/modbus/write_valve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ slave_id: slaveId, valve: valveIndex, open: open })
+            }).then(res => res.json()).then(data => {
+                if (data.status === 'ok') {
+                    showToast(`Valve ${valveIndex} set to ${open ? 'OPEN (1)' : 'CLOSED (0)'}`);
+                } else {
+                    showToast(`Write error: ${data.error}`, false);
+                }
+            }).catch(err => showToast(`Request failed`, false));
+        }
+
+        function writeRegister() {
+            const slaveId = parseInt(document.getElementById('ctrl_slave_id').value) || 1;
+            const addr = parseInt(document.getElementById('write_reg_addr').value);
+            const val = parseInt(document.getElementById('write_reg_val').value);
+            fetch('/api/modbus/write_register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ slave_id: slaveId, address: addr, value: val })
+            }).then(res => res.json()).then(data => {
+                if (data.status === 'ok') {
+                    showToast(`Register ${addr} written with ${val}`);
+                } else {
+                    showToast(`Write error: ${data.error}`, false);
+                }
+            }).catch(err => showToast(`Request failed`, false));
+        }
 
         document.getElementById('configForm').addEventListener('submit', function(e) {
             e.preventDefault();
@@ -255,9 +337,7 @@ static const char* HTML_PAGE = R"RAW(
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(config, null, 4)
             }).then(() => {
-                const toast = document.getElementById('toast');
-                toast.classList.add('show');
-                setTimeout(() => toast.classList.remove('show'), 3000);
+                showToast('Configuration saved successfully!');
             });
         });
     </script>
@@ -297,6 +377,63 @@ void start_web_server() {
         } catch (const std::exception& e) {
             res.status = 400;
             res.set_content("{\"error\": \"Invalid JSON\"}", "application/json");
+        }
+    });
+
+    svr.Post("/api/modbus/write_coil", [](const httplib::Request& req, httplib::Response& res) {
+        try {
+            auto j = nlohmann::json::parse(req.body);
+            int slave_id = j.value("slave_id", 1);
+            int address = j.value("address", 0);
+            bool value = j.value("value", false);
+            bool success = modbus_write_coil(slave_id, address, value);
+            if (success) {
+                res.set_content("{\"status\": \"ok\"}", "application/json");
+            } else {
+                res.status = 500;
+                res.set_content("{\"error\": \"Failed to write coil\"}", "application/json");
+            }
+        } catch (...) {
+            res.status = 400;
+            res.set_content("{\"error\": \"Invalid request JSON\"}", "application/json");
+        }
+    });
+
+    svr.Post("/api/modbus/write_register", [](const httplib::Request& req, httplib::Response& res) {
+        try {
+            auto j = nlohmann::json::parse(req.body);
+            int slave_id = j.value("slave_id", 1);
+            int address = j.value("address", 0);
+            uint16_t value = j.value("value", 0);
+            bool success = modbus_write_holding_register(slave_id, address, value);
+            if (success) {
+                res.set_content("{\"status\": \"ok\"}", "application/json");
+            } else {
+                res.status = 500;
+                res.set_content("{\"error\": \"Failed to write register\"}", "application/json");
+            }
+        } catch (...) {
+            res.status = 400;
+            res.set_content("{\"error\": \"Invalid request JSON\"}", "application/json");
+        }
+    });
+
+    svr.Post("/api/modbus/write_valve", [](const httplib::Request& req, httplib::Response& res) {
+        try {
+            auto j = nlohmann::json::parse(req.body);
+            int slave_id = j.value("slave_id", 1);
+            int valve_index = j.value("valve", 1);
+            bool open = j.value("open", false);
+            bool success = modbus_write_valve(slave_id, valve_index, open);
+            if (success) {
+                res.set_content("{\"status\": \"ok\"}", "application/json");
+            } else {
+                res.status = 500;
+                res.set_content("{\"error\": \"Failed to write valve\"}", "application/json");
+            }
+        } catch (...) {
+            res.status = 400;
+            res.set_content("{\"error\": \"Invalid request JSON\"}", "application/json");
         }
     });
 

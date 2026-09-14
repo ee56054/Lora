@@ -11,6 +11,7 @@
 // Shared queue and mutex for received LoRa packets destined for Modbus
 std::queue<RxMessage> message_queue;
 std::mutex queue_mutex;
+static std::mutex g_modbus_mutex;
 
 // Global Modbus context for the LoRa backend
 static modbus_t *g_modbus_ctx = nullptr;
@@ -331,8 +332,6 @@ void run_modbus_loop(sx126x_mod_params_lora_t *mod_params,
     }
 
     for (int device_id : devices) {
-      modbus_set_slave(g_modbus_ctx, device_id);
-
       for (const auto &target : g_modbus_poll_targets) {
         if (stat("config.json", &st) == 0 && st.st_mtime > last_config_time) {
           std::cout << "\nconfig.json modified! Reloading application..." << std::endl;
@@ -344,51 +343,56 @@ void run_modbus_loop(sx126x_mod_params_lora_t *mod_params,
                   << target.name << " [" << target.fc_str << "] ---" << std::endl;
 
         int rc = -1;
-        if (target.type == MODBUS_TABLE_COIL) {
-          uint8_t dest[1] = {0};
-          rc = modbus_read_bits(g_modbus_ctx, target.address, 1, dest);
-          if (rc == -1) {
-            std::cerr << "Failed to read Coil " << target.address << " (" << target.name << "): "
-                      << modbus_strerror(errno) << std::endl;
-          } else {
-            std::cout << ">>> [MODBUS RECEIVED VALUE] Device " << device_id << " " << target.name
-                      << " (Coil 0x" << std::hex << target.address << std::dec << "): "
-                      << (dest[0] ? "1 (Open/ON)" : "0 (Closed/OFF)")
-                      << " <<<" << std::endl;
-          }
-        } else if (target.type == MODBUS_TABLE_DISCRETE_INPUT) {
-          uint8_t dest[1] = {0};
-          rc = modbus_read_input_bits(g_modbus_ctx, target.address, 1, dest);
-          if (rc == -1) {
-            std::cerr << "Failed to read Discrete Input " << target.address << " (" << target.name << "): "
-                      << modbus_strerror(errno) << std::endl;
-          } else {
-            std::cout << ">>> [MODBUS RECEIVED VALUE] Device " << device_id << " " << target.name
-                      << " (Discrete Input 0x" << std::hex << target.address << std::dec << "): "
-                      << (dest[0] ? "1 (Open)" : "0 (Closed)")
-                      << " <<<" << std::endl;
-          }
-        } else if (target.type == MODBUS_TABLE_INPUT_REG) {
-          uint16_t dest[1] = {0};
-          rc = modbus_read_input_registers(g_modbus_ctx, target.address, 1, dest);
-          if (rc == -1) {
-            std::cerr << "Failed to read Input Register " << target.address << " (" << target.name << "): "
-                      << modbus_strerror(errno) << std::endl;
-          } else {
-            std::cout << ">>> [MODBUS RECEIVED VALUE] Device " << device_id << " " << target.name
-                      << " (Input Reg 0x" << std::hex << target.address << std::dec << "): "
-                      << dest[0] << " (0x" << std::hex << dest[0] << std::dec << ") <<<" << std::endl;
-          }
-        } else if (target.type == MODBUS_TABLE_HOLDING_REG) {
-          uint16_t dest[1] = {0};
-          rc = modbus_read_registers(g_modbus_ctx, target.address, 1, dest);
-          if (rc == -1) {
-            std::cerr << "Failed to read Holding Register " << target.address << " (" << target.name << "): "
-                      << modbus_strerror(errno) << std::endl;
-          } else {
-            std::cout << ">>> [MODBUS RECEIVED VALUE] Device " << device_id << " " << target.name
-                      << " (Holding Reg 0x" << std::hex << target.address << std::dec << "): "
-                      << dest[0] << " (0x" << std::hex << dest[0] << std::dec << ") <<<" << std::endl;
+        {
+          std::lock_guard<std::mutex> lock(g_modbus_mutex);
+          modbus_set_slave(g_modbus_ctx, device_id);
+
+          if (target.type == MODBUS_TABLE_COIL) {
+            uint8_t dest[1] = {0};
+            rc = modbus_read_bits(g_modbus_ctx, target.address, 1, dest);
+            if (rc == -1) {
+              std::cerr << "Failed to read Coil " << target.address << " (" << target.name << "): "
+                        << modbus_strerror(errno) << std::endl;
+            } else {
+              std::cout << ">>> [MODBUS RECEIVED VALUE] Device " << device_id << " " << target.name
+                        << " (Coil 0x" << std::hex << target.address << std::dec << "): "
+                        << (dest[0] ? "1 (Open/ON)" : "0 (Closed/OFF)")
+                        << " <<<" << std::endl;
+            }
+          } else if (target.type == MODBUS_TABLE_DISCRETE_INPUT) {
+            uint8_t dest[1] = {0};
+            rc = modbus_read_input_bits(g_modbus_ctx, target.address, 1, dest);
+            if (rc == -1) {
+              std::cerr << "Failed to read Discrete Input " << target.address << " (" << target.name << "): "
+                        << modbus_strerror(errno) << std::endl;
+            } else {
+              std::cout << ">>> [MODBUS RECEIVED VALUE] Device " << device_id << " " << target.name
+                        << " (Discrete Input 0x" << std::hex << target.address << std::dec << "): "
+                        << (dest[0] ? "1 (Open)" : "0 (Closed)")
+                        << " <<<" << std::endl;
+            }
+          } else if (target.type == MODBUS_TABLE_INPUT_REG) {
+            uint16_t dest[1] = {0};
+            rc = modbus_read_input_registers(g_modbus_ctx, target.address, 1, dest);
+            if (rc == -1) {
+              std::cerr << "Failed to read Input Register " << target.address << " (" << target.name << "): "
+                        << modbus_strerror(errno) << std::endl;
+            } else {
+              std::cout << ">>> [MODBUS RECEIVED VALUE] Device " << device_id << " " << target.name
+                        << " (Input Reg 0x" << std::hex << target.address << std::dec << "): "
+                        << dest[0] << " (0x" << std::hex << dest[0] << std::dec << ") <<<" << std::endl;
+            }
+          } else if (target.type == MODBUS_TABLE_HOLDING_REG) {
+            uint16_t dest[1] = {0};
+            rc = modbus_read_registers(g_modbus_ctx, target.address, 1, dest);
+            if (rc == -1) {
+              std::cerr << "Failed to read Holding Register " << target.address << " (" << target.name << "): "
+                        << modbus_strerror(errno) << std::endl;
+            } else {
+              std::cout << ">>> [MODBUS RECEIVED VALUE] Device " << device_id << " " << target.name
+                        << " (Holding Reg 0x" << std::hex << target.address << std::dec << "): "
+                        << dest[0] << " (0x" << std::hex << dest[0] << std::dec << ") <<<" << std::endl;
+            }
           }
         }
 
@@ -396,5 +400,124 @@ void run_modbus_loop(sx126x_mod_params_lora_t *mod_params,
       }
     }
   }
+}
+
+// --- Modbus Write Functions Implementation ---
+
+bool modbus_write_coil(int slave_id, int address, bool state) {
+  if (!is_modbus_ready()) {
+    std::cerr << "[Modbus Write] Error: Modbus context not initialized" << std::endl;
+    return false;
+  }
+  std::lock_guard<std::mutex> lock(g_modbus_mutex);
+
+  modbus_set_slave(g_modbus_ctx, slave_id);
+
+  std::cout << "\n>>> [MODBUS WRITE COIL (FC 05)] Target Slave " << slave_id
+            << ", Address 0x" << std::hex << address << std::dec << " (" << address << ") -> "
+            << (state ? "1 (Open/ON)" : "0 (Closed/OFF)") << " <<<" << std::endl;
+
+  int rc = modbus_write_bit(g_modbus_ctx, address, state ? 1 : 0);
+  if (rc == -1) {
+    std::cerr << "[Modbus Write] Failed to write Coil " << address << ": "
+              << modbus_strerror(errno) << std::endl;
+    return false;
+  }
+
+  std::cout << ">>> [MODBUS WRITE COIL SUCCESS] Slave " << slave_id
+            << " Coil 0x" << std::hex << address << std::dec << " set to "
+            << (state ? "1 (ON)" : "0 (OFF)") << " <<<" << std::endl;
+  return true;
+}
+
+bool modbus_write_holding_register(int slave_id, int address, uint16_t value) {
+  if (!is_modbus_ready()) {
+    std::cerr << "[Modbus Write] Error: Modbus context not initialized" << std::endl;
+    return false;
+  }
+  std::lock_guard<std::mutex> lock(g_modbus_mutex);
+
+  modbus_set_slave(g_modbus_ctx, slave_id);
+
+  std::cout << "\n>>> [MODBUS WRITE REGISTER (FC 06)] Target Slave " << slave_id
+            << ", Address 0x" << std::hex << address << std::dec << " (" << address << ") -> "
+            << value << " (0x" << std::hex << value << std::dec << ") <<<" << std::endl;
+
+  int rc = modbus_write_register(g_modbus_ctx, address, value);
+  if (rc == -1) {
+    std::cerr << "[Modbus Write] Failed to write Holding Register " << address << ": "
+              << modbus_strerror(errno) << std::endl;
+    return false;
+  }
+
+  std::cout << ">>> [MODBUS WRITE REGISTER SUCCESS] Slave " << slave_id
+            << " Register 0x" << std::hex << address << std::dec << " written with "
+            << value << " (0x" << std::hex << value << std::dec << ") <<<" << std::endl;
+  return true;
+}
+
+bool modbus_write_multiple_coils(int slave_id, int address, int count, const uint8_t *values) {
+  if (!is_modbus_ready() || values == nullptr || count <= 0) {
+    std::cerr << "[Modbus Write] Error: Invalid parameters or context not initialized" << std::endl;
+    return false;
+  }
+  std::lock_guard<std::mutex> lock(g_modbus_mutex);
+
+  modbus_set_slave(g_modbus_ctx, slave_id);
+
+  std::cout << "\n>>> [MODBUS WRITE MULTIPLE COILS (FC 15)] Target Slave " << slave_id
+            << ", Start Address 0x" << std::hex << address << std::dec << ", Count: " << count << " <<<" << std::endl;
+
+  int rc = modbus_write_bits(g_modbus_ctx, address, count, values);
+  if (rc == -1) {
+    std::cerr << "[Modbus Write] Failed to write multiple coils starting at " << address << ": "
+              << modbus_strerror(errno) << std::endl;
+    return false;
+  }
+
+  std::cout << ">>> [MODBUS WRITE MULTIPLE COILS SUCCESS] Slave " << slave_id
+            << " wrote " << count << " coils starting at 0x" << std::hex << address << std::dec << " <<<" << std::endl;
+  return true;
+}
+
+bool modbus_write_multiple_holding_registers(int slave_id, int address, int count, const uint16_t *values) {
+  if (!is_modbus_ready() || values == nullptr || count <= 0) {
+    std::cerr << "[Modbus Write] Error: Invalid parameters or context not initialized" << std::endl;
+    return false;
+  }
+  std::lock_guard<std::mutex> lock(g_modbus_mutex);
+
+  modbus_set_slave(g_modbus_ctx, slave_id);
+
+  std::cout << "\n>>> [MODBUS WRITE MULTIPLE REGISTERS (FC 16)] Target Slave " << slave_id
+            << ", Start Address 0x" << std::hex << address << std::dec << ", Count: " << count << " <<<" << std::endl;
+
+  int rc = modbus_write_registers(g_modbus_ctx, address, count, values);
+  if (rc == -1) {
+    std::cerr << "[Modbus Write] Failed to write multiple registers starting at " << address << ": "
+              << modbus_strerror(errno) << std::endl;
+    return false;
+  }
+
+  std::cout << ">>> [MODBUS WRITE MULTIPLE REGISTERS SUCCESS] Slave " << slave_id
+            << " wrote " << count << " registers starting at 0x" << std::hex << address << std::dec << " <<<" << std::endl;
+  return true;
+}
+
+bool modbus_write_valve(int slave_id, int valve_index, bool open) {
+  if (valve_index < 1 || valve_index > 2) {
+    std::cerr << "[Modbus Write] Invalid valve index " << valve_index << " (must be 1 or 2)" << std::endl;
+    return false;
+  }
+  int coil_addr = valve_index - 1; // Valve 1 = Coil 0, Valve 2 = Coil 1
+  return modbus_write_coil(slave_id, coil_addr, open);
+}
+
+bool modbus_write_remote_slave_id(int current_slave_id, int new_slave_id) {
+  if (new_slave_id < 1 || new_slave_id > 247) {
+    std::cerr << "[Modbus Write] Invalid new slave ID " << new_slave_id << " (must be 1-247)" << std::endl;
+    return false;
+  }
+  return modbus_write_holding_register(current_slave_id, 8, (uint16_t)new_slave_id);
 }
 
