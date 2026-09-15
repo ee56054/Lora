@@ -109,14 +109,20 @@ static int _modbus_lora_pre_check_confirmation(modbus_t *ctx, const uint8_t *req
 }
 
 static int _modbus_lora_connect(modbus_t *ctx) {
+    // libmodbus checks `if (ctx->s < 0 || ctx->s >= FD_SETSIZE)` in `_modbus_receive_msg`.
+    // Since LoRa uses memory queues instead of a socket or serial port, set a dummy non-negative fd.
+    ctx->s = 0;
     return 0; 
 }
 
 static unsigned int _modbus_lora_is_connected(modbus_t *ctx) {
-    return 1;
+    return (ctx != nullptr && ctx->s >= 0) ? 1 : 0;
 }
 
 static void _modbus_lora_close(modbus_t *ctx) {
+    if (ctx != nullptr) {
+        ctx->s = -1;
+    }
 }
 
 static int _modbus_lora_flush(modbus_t *ctx) {
