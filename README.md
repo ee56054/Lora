@@ -7,6 +7,12 @@ A high-performance C++ application for Linux (optimized for Orange Pi Zero 2W an
 ## Features
 
 - **SX126X LoRa Driver**: Native integration with [Lora-net/sx126x_driver](https://github.com/Lora-net/sx126x_driver).
+- **LoRa Security & STM32 Interoperability (AES-128-CTR + MIC)**:
+  - 100% wire-compatible with `C:\STM32\LoraStm32`.
+  - AES-128 stream cipher in Counter (CTR) mode with per-packet dynamic 32-bit big-endian Nonces.
+  - Frame integrity & authenticity protected by 2-byte CRC16-CCITT Message Integrity Code (MIC).
+  - Backward compatibility: automatically detects secure frames (`0x53` magic byte) vs plaintext frames.
+  - Transparent encryption of all outgoing Modbus RTU frames and periodic pings.
 - **Modbus RTU over LoRa**:
   - Full support for standard Modbus RTU frames with standard CRC-16 calculation and validation.
   - Seamless libmodbus backend (`modbus_lora`) bridging serial Modbus frames to LoRa wireless packets.
@@ -95,7 +101,9 @@ The application automatically reads and monitors `config.json`. When changes are
     "rx_timeout": 5000,
     "modbus_enabled": true,
     "modbus_slave_id": 1,
-    "modbus_address_devices": [1]
+    "modbus_address_devices": [1],
+    "security_enabled": true,
+    "aes_key": "2B7E151628AED2A6ABF7158809CF4F3C"
 }
 ```
 
@@ -106,6 +114,33 @@ The application automatically reads and monitors `config.json`. When changes are
 - **Bandwidth**: `7.81`, `10.42`, `15.63`, `20.83`, `31.25`, `41.67`, `62.5`, `125`, `250`, `500` (kHz).
 - **Coding Rate**: `4/5`, `4/6`, `4/7`, `4/8`.
 - **Modbus Protocol**: `modbus_enabled` (`true` / `false`), local `modbus_slave_id`, target `modbus_address_devices`.
+- **Security & Encryption**:
+  - `security_enabled`: `true` to encrypt outgoing packets and require authentication; `false` for raw plaintext.
+  - `aes_key`: 16-byte pre-shared key as a 32-character hexadecimal string (must match STM32 peer).
+
+---
+
+## LoRa Security Protocol (STM32 Interoperability)
+
+The security layer is 100% interoperable with `C:\STM32\LoraStm32`'s `lora_security.c`.
+
+### Frame Wire Format
+Total security overhead: **7 bytes** per packet.
+```
++---------------+------------------------+--------------------------+-----------------------+
+| Magic Byte 1B | Nonce / Counter 4B     | Encrypted Payload N B    | CRC16 MIC 2B          |
+| 0x53 ('S')    | Big-Endian uint32      | AES-128-CTR Ciphertext   | Poly 0x1021, Init 0xFFFF|
++---------------+------------------------+--------------------------+-----------------------+
+```
+
+### Cryptographic Details
+- **Cipher**: AES-128 in Counter (CTR) mode.
+- **IV / Counter Construction (16 bytes)**:
+  - Bytes `0..3`: Packet Nonce (32-bit big-endian).
+  - Bytes `4..7`: Fixed IV Tag (`0xAA, 0x55, 0xAA, 0x55`).
+  - Bytes `8..15`: Block Counter (64-bit big-endian, starting at 0).
+- **Integrity**: 2-byte CRC16-CCITT Message Integrity Code (MIC) calculated over plaintext payload before encryption. Packets failing MIC verification are automatically dropped.
+- **Auto-Detection**: Incoming packets beginning with `0x53` and meeting length thresholds are treated as encrypted. Non-secure frames are received as legacy plaintext.
 
 ---
 
@@ -256,6 +291,7 @@ Write a 16-bit value to any holding register (FC 06).
     ├── config.h / .cpp   # JSON configuration manager & validation
     ├── hal.h / .cpp      # SX126X Hardware Abstraction Layer (SPI / wiringOP GPIO)
     ├── lora_app.h / .cpp # Transceiver orchestration and RX/TX routines
+    ├── lora_security.h / .cpp # AES-128-CTR encryption engine & CRC16 MIC (STM32 compatible)
     ├── modbus_app.h / .cpp # Modbus app logic, on-demand read/write, telemetry cache
     ├── modbus_lora.h / .cpp # libmodbus custom backend for LoRa transport & CRC-16
     ├── diagnostics.h / .cpp # Radio status and packet inspection utilities

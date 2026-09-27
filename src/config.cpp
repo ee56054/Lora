@@ -163,6 +163,11 @@ bool LoraConfig::load_from_file(const std::string &filepath) {
       modbus_address_devices = j["modbus_address_devices"].get<std::vector<int>>();
     }
 
+    if (j.contains("security_enabled"))
+      security_enabled = j["security_enabled"].get<bool>();
+    if (j.contains("aes_key"))
+      aes_key = j["aes_key"].get<std::string>();
+
     return true;
   } catch (const nlohmann::json::exception &e) {
     std::cerr << "JSON parsing error: " << e.what() << std::endl;
@@ -183,6 +188,9 @@ bool LoraConfig::save_to_file(const std::string &filepath) const {
   j["modbus_enabled"] = modbus_enabled;
   j["modbus_slave_id"] = modbus_slave_id;
   j["modbus_address_devices"] = modbus_address_devices;
+
+  j["security_enabled"] = security_enabled;
+  j["aes_key"] = aes_key;
 
   std::ofstream file(filepath);
   if (!file.is_open()) {

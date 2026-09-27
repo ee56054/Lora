@@ -162,6 +162,17 @@ void show_configuration() {
   }
   std::cout << "]" << std::endl;
 
+  // Security Configuration (compatible with STM32)
+  std::cout << "\n--- LoRa Security (AES-128-CTR + MIC) ---" << std::endl;
+  std::cout << "Security Enabled: " << (g_config.security_enabled ? "Yes (STM32 Compatible)" : "No (Plaintext)") << std::endl;
+  if (g_config.security_enabled) {
+      std::string masked_key = g_config.aes_key;
+      if (masked_key.length() == 32) {
+          masked_key = masked_key.substr(0, 4) + "..." + masked_key.substr(28, 4);
+      }
+      std::cout << "AES Key: " << masked_key << std::endl;
+  }
+
   std::cout << "==========================================\n" << std::endl;
 }
 

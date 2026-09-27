@@ -21,6 +21,10 @@ struct LoraConfig {
   int modbus_slave_id = 1;
   std::vector<int> modbus_address_devices = {1};
 
+  // LoRa Security (AES-128-CTR + CRC16 MIC, compatible with STM32)
+  bool security_enabled = true;
+  std::string aes_key = "2B7E151628AED2A6ABF7158809CF4F3C";
+
   bool load_from_file(const std::string &filepath);
   bool save_to_file(const std::string &filepath) const;
 };

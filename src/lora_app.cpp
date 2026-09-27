@@ -2,6 +2,7 @@
 #include "hal.h"
 #include "lora_app.h"
 #include "modbus_app.h"
+#include "lora_security.h"
 #include "sx126x.h"
 #include "sx126x_hal.h"
 #include <cstring>
@@ -75,40 +76,77 @@ void dio1_interrupt_handler(void) {
     status = sx126x_read_buffer(NULL, buffer_offset, payload, payload_len);
     if (status == SX126X_STATUS_OK) {
       packet_count++;
-      if (payload_len < sizeof(payload)) {
-        payload[payload_len] = '\0';
-      }
       std::cout << "\n[Packet #" << packet_count << "] Received "
                 << (int)payload_len << " bytes:" << std::endl;
       std::cout << "  RSSI: " << (int)rssi << " dBm, SNR: " << (int)snr << " dB"
                 << std::endl;
-      // Print payload as string (if printable) or hex
-      bool all_printable = true;
-      for (uint8_t i = 0; i < payload_len; i++) {
-        if (payload[i] < 32 || payload[i] > 126) {
-          all_printable = false;
-          break;
-        }
-      }
 
-      std::cout << "  Data: ";
-      if (all_printable) {
-        for (uint8_t i = 0; i < payload_len; i++) {
-          std::cout << (char)payload[i];
-        }
-      } else {
-        for (uint8_t i = 0; i < payload_len; i++) {
-          printf("%02X ", payload[i]);
-        }
+      // Print raw packet in hex
+      std::cout << "  Raw Hex: ";
+      for (uint8_t i = 0; i < payload_len; i++) {
+        printf("%02X ", payload[i]);
       }
       std::cout << std::endl;
 
-      // Clear RX_DONE IRQ
-      sx126x_clear_irq_status(NULL, SX126X_IRQ_RX_DONE);
+      // Handle security decryption & MIC verification
+      uint8_t proc_payload[256];
+      uint16_t proc_len = 0;
+      bool packet_valid = true;
 
-      if (g_config.modbus_enabled) {
-        modbus_print_packet_value(payload, payload_len);
-        modbus_queue_rx_packet(payload, payload_len);
+      if (lora_security_is_encrypted(payload, payload_len)) {
+        if (lora_security_decrypt(payload, payload_len, proc_payload, &proc_len)) {
+          std::cout << "  [Security] Decrypted " << (int)proc_len
+                    << " bytes (MIC verified, AES-128-CTR)" << std::endl;
+        } else {
+          std::cerr << "  [Security] Decryption FAILED! Corrupted packet or invalid key. Packet dropped."
+                    << std::endl;
+          packet_valid = false;
+        }
+      } else {
+        if (g_config.security_enabled) {
+          std::cout << "  [Security] Warning: Plaintext packet received while security is enabled."
+                    << std::endl;
+        }
+        memcpy(proc_payload, payload, payload_len);
+        proc_len = payload_len;
+      }
+
+      if (packet_valid && proc_len > 0) {
+        if (proc_len < sizeof(proc_payload)) {
+          proc_payload[proc_len] = '\0';
+        }
+
+        // Print processed payload as string (if printable) or hex
+        bool all_printable = true;
+        for (uint16_t i = 0; i < proc_len; i++) {
+          if (proc_payload[i] < 32 || proc_payload[i] > 126) {
+            all_printable = false;
+            break;
+          }
+        }
+
+        std::cout << "  Payload: ";
+        if (all_printable) {
+          for (uint16_t i = 0; i < proc_len; i++) {
+            std::cout << (char)proc_payload[i];
+          }
+        } else {
+          for (uint16_t i = 0; i < proc_len; i++) {
+            printf("%02X ", proc_payload[i]);
+          }
+        }
+        std::cout << std::endl;
+
+        // Clear RX_DONE IRQ
+        sx126x_clear_irq_status(NULL, SX126X_IRQ_RX_DONE);
+
+        if (g_config.modbus_enabled) {
+          modbus_print_packet_value(proc_payload, (uint8_t)proc_len);
+          modbus_queue_rx_packet(proc_payload, (uint8_t)proc_len);
+        }
+      } else {
+        // Clear RX_DONE IRQ even if packet was dropped
+        sx126x_clear_irq_status(NULL, SX126X_IRQ_RX_DONE);
       }
     } else {
       // Clear RX_DONE IRQ if buffer read failed
@@ -185,10 +223,25 @@ bool transmit(const uint8_t *payload, uint8_t size,
   std::lock_guard<std::recursive_mutex> lock(g_lora_mutex);
   sx126x_status_t status;
 
+  const uint8_t *tx_data = payload;
+  uint8_t tx_len = size;
+  uint8_t sec_buf[256];
+  uint16_t sec_len = 0;
+
+  if (g_config.security_enabled) {
+    if (lora_security_encrypt(payload, size, sec_buf, &sec_len)) {
+      tx_data = sec_buf;
+      tx_len = (uint8_t)sec_len;
+      std::cout << "[Security] Encrypted TX frame (" << (int)size << " -> " << (int)tx_len << " bytes)" << std::endl;
+    } else {
+      std::cerr << "[Security] Encryption failed, sending plaintext!" << std::endl;
+    }
+  }
+
   // Switch to TX mode
   set_rf_switch_tx();
   // Write payload to TX buffer
-  status = sx126x_write_buffer(NULL, 0, payload, size);
+  status = sx126x_write_buffer(NULL, 0, tx_data, tx_len);
   if (status != SX126X_STATUS_OK) {
     std::cerr << "Failed to write payload to buffer" << std::endl;
     // Re-enable RX if write failed
@@ -197,34 +250,32 @@ bool transmit(const uint8_t *payload, uint8_t size,
     return false;
   }
 
-  // Set the hardware packet parameters to transmit EXACTLY size bytes
-  pkt_params->pld_len_in_bytes = size;
+  // Set the hardware packet parameters to transmit EXACTLY tx_len bytes
+  pkt_params->pld_len_in_bytes = tx_len;
   sx126x_set_lora_pkt_params(NULL, pkt_params);
 
   // Start transmission (interrupt will handle TX_DONE and revert to RX)
-  std::cout << "tx: " << payload << std::endl;
-  std::cout << "tx (" << (int)size << " bytes): ";
+  std::cout << "tx (" << (int)tx_len << " bytes): ";
   bool all_printable = true;
-  for (size_t i = 0; i < size; i++) {
-    if (payload[i] < 32 || payload[i] > 126) {
+  for (size_t i = 0; i < tx_len; i++) {
+    if (tx_data[i] < 32 || tx_data[i] > 126) {
       all_printable = false;
       break;
     }
   }
-  for (size_t i = 0; i < size; i++) {
-    printf("%02X ", payload[i]);
+  for (size_t i = 0; i < tx_len; i++) {
+    printf("%02X ", tx_data[i]);
   }
   if (all_printable) {
     std::cout << "(\"";
-    for (size_t i = 0; i < size; i++) {
-      std::cout << (char)payload[i];
+    for (size_t i = 0; i < tx_len; i++) {
+      std::cout << (char)tx_data[i];
     }
     std::cout << "\")";
   }
   std::cout << std::endl;
 
   status = sx126x_set_tx(NULL, 0);
-  std::cout << "tx done: " << payload << std::endl;
   if (status != SX126X_STATUS_OK) {
     std::cerr << "Failed to start transmission" << std::endl;
     // Re-enable RX if start TX failed
@@ -307,6 +358,14 @@ int run_lora_app() {
           << "Config file not found or invalid, saving defaults to config.json..."
           << std::endl;
       g_config.save_to_file("config.json");
+    }
+
+    // Initialize LoRa Security Engine (AES-128-CTR + CRC16 MIC)
+    if (g_config.security_enabled) {
+      if (!lora_security_set_key_hex(g_config.aes_key)) {
+        std::cerr << "[Security] Invalid AES key in config! Falling back to factory default key." << std::endl;
+        lora_security_init(nullptr);
+      }
     }
 
     std::cout << "Hello, World from CMake project with SX126X driver!"

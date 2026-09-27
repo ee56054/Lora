@@ -10,6 +10,7 @@
     "modbus_slave_id": 1,
     "modbus_address_devices": [
         1
-    ]
+    ],
+    "security_enabled": true,
+    "aes_key": "2B7E151628AED2A6ABF7158809CF4F3C"
 }
-

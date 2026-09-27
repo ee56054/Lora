@@ -473,6 +473,14 @@ static const char* HTML_PAGE = R"RAW(
                         <input type="text" id="modbus_address_devices" name="modbus_address_devices" value="1" placeholder="e.g. 1, 2, 3">
                     </div>
                 </div>
+                <div class="form-group checkbox-group" style="margin-top: 1.25rem;">
+                    <input type="checkbox" id="security_enabled" name="security_enabled" checked>
+                    <label for="security_enabled">Enable LoRa Security (AES-128-CTR + MIC, STM32 Compatible)</label>
+                </div>
+                <div class="form-group">
+                    <label>AES-128 Pre-Shared Key (32 Hex Characters)</label>
+                    <input type="text" id="aes_key" name="aes_key" value="2B7E151628AED2A6ABF7158809CF4F3C" maxlength="32" placeholder="e.g. 2B7E151628AED2A6ABF7158809CF4F3C" style="font-family: monospace; letter-spacing: 1px;">
+                </div>
                 <button type="submit">Save & Reload Device</button>
             </form>
         </div>
@@ -494,6 +502,8 @@ static const char* HTML_PAGE = R"RAW(
                 document.getElementById('ctrl_slave_id').value = data.modbus_slave_id || 1;
                 document.getElementById('telem_slave_id_disp').innerText = data.modbus_slave_id || 1;
                 document.getElementById('modbus_address_devices').value = (data.modbus_address_devices && data.modbus_address_devices.length > 0) ? data.modbus_address_devices.join(', ') : '1';
+                document.getElementById('security_enabled').checked = (data.security_enabled !== undefined) ? data.security_enabled : true;
+                document.getElementById('aes_key').value = data.aes_key || '2B7E151628AED2A6ABF7158809CF4F3C';
             });
 
         function showToast(msg, isSuccess = true) {
@@ -658,7 +668,9 @@ static const char* HTML_PAGE = R"RAW(
                 rx_timeout: 5000,
                 modbus_enabled: document.getElementById('modbus_enabled').checked,
                 modbus_slave_id: parseInt(document.getElementById('modbus_slave_id').value),
-                modbus_address_devices: devices
+                modbus_address_devices: devices,
+                security_enabled: document.getElementById('security_enabled').checked,
+                aes_key: document.getElementById('aes_key').value.trim().toUpperCase()
             };
 
             fetch('/api/config', {
