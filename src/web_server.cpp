@@ -232,270 +232,458 @@ static const char* HTML_PAGE = R"RAW(
             opacity: 1;
             transform: translateY(0);
         }
+        /* Multi-Tab Navigation */
+        .app-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-bottom: 1.25rem;
+        }
+        .app-title {
+            font-size: 1.5rem;
+            font-weight: 800;
+            margin: 0;
+            background: linear-gradient(135deg, #60a5fa, #34d399);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .tabs-nav {
+            display: flex;
+            gap: 0.5rem;
+            background: var(--card-bg);
+            padding: 0.45rem;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            margin-bottom: 1.25rem;
+            overflow-x: auto;
+        }
+        .tab-btn {
+            flex: 1;
+            min-width: 140px;
+            margin: 0;
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 0.92rem;
+            font-weight: 600;
+            border: 1px solid transparent;
+            box-shadow: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            transition: all 0.2s ease;
+        }
+        .tab-btn:hover {
+            color: var(--text-main);
+            background: rgba(255, 255, 255, 0.05);
+            transform: none;
+            box-shadow: none;
+        }
+        .tab-btn.active {
+            background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+            color: #ffffff;
+            box-shadow: 0 4px 10px -2px rgba(59, 130, 246, 0.5);
+        }
+        .tab-pane {
+            display: none;
+            animation: fadeIn 0.2s ease;
+        }
+        .tab-pane.active {
+            display: block;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .slave-bar {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1rem 1.25rem;
+            margin-bottom: 1.25rem;
+        }
+        .slave-pills {
+            display: flex;
+            gap: 0.4rem;
+            flex-wrap: wrap;
+        }
+        .pill-btn {
+            margin: 0;
+            width: auto;
+            padding: 0.45rem 0.85rem;
+            font-size: 0.8rem;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            box-shadow: none;
+        }
+        .pill-btn:hover {
+            background: var(--primary);
+            border-color: var(--primary);
+            transform: translateY(-1px);
+        }
+        .pill-btn.active-pill {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: #fff;
+        }
+        .pill-btn.broadcast-pill {
+            border-color: #f59e0b;
+            color: #fbbf24;
+            background: rgba(245, 158, 11, 0.12);
+        }
+        .pill-btn.broadcast-pill.active-pill,
+        .pill-btn.broadcast-pill:hover {
+            background: #f59e0b;
+            color: #0f172a;
+            font-weight: 700;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- Card 1: Modbus Live Telemetry & Reads -->
-        <div class="card">
-            <div class="card-header">
-                <h1>Modbus Live Telemetry</h1>
-                <button type="button" id="btnReadAll" class="btn-success" style="margin: 0; width: auto; padding: 0.65rem 1.25rem; font-size: 0.95rem;" onclick="readAllTelemetry()">
-                    &#x21bb; Read All Values
-                </button>
-            </div>
-            
-            <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.25rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; background: rgba(255,255,255,0.02); padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--border);">
-                <span>Target Slave ID: <strong id="telem_slave_id_disp" style="color: var(--primary);">1</strong></span>
-                <span>Last Updated: <strong id="last_update_disp" style="color: var(--text-main);">Never</strong></span>
-            </div>
-
-            <div style="overflow-x: auto;">
-                <table class="telem-table">
-                    <thead>
-                        <tr>
-                            <th>Type & Address</th>
-                            <th>Parameter Name</th>
-                            <th>Value</th>
-                            <th style="text-align: right;">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <!-- Coils (0x) -->
-                        <tr class="table-section"><td colspan="4">Coils (0x / Read-Write)</td></tr>
-                        <tr>
-                            <td><code>0x0000 (0)</code></td>
-                            <td>Valve 1</td>
-                            <td id="val_valve1"><span class="badge badge-unknown">Unknown</span></td>
-                            <td style="text-align: right;"><button class="btn-sm" onclick="readItem('coil', 0, this)">Read</button></td>
-                        </tr>
-                        <tr>
-                            <td><code>0x0001 (1)</code></td>
-                            <td>Valve 2</td>
-                            <td id="val_valve2"><span class="badge badge-unknown">Unknown</span></td>
-                            <td style="text-align: right;"><button class="btn-sm" onclick="readItem('coil', 1, this)">Read</button></td>
-                        </tr>
-
-                        <!-- Discrete Inputs (1x) -->
-                        <tr class="table-section"><td colspan="4">Discrete Inputs (1x / Read-Only)</td></tr>
-                        <tr>
-                            <td><code>0x0000 (0)</code></td>
-                            <td>Valve 1 Status</td>
-                            <td id="val_valve1_status"><span class="badge badge-unknown">Unknown</span></td>
-                            <td style="text-align: right;"><button class="btn-sm" onclick="readItem('discrete_input', 0, this)">Read</button></td>
-                        </tr>
-                        <tr>
-                            <td><code>0x0001 (1)</code></td>
-                            <td>Valve 2 Status</td>
-                            <td id="val_valve2_status"><span class="badge badge-unknown">Unknown</span></td>
-                            <td style="text-align: right;"><button class="btn-sm" onclick="readItem('discrete_input', 1, this)">Read</button></td>
-                        </tr>
-
-                        <!-- Input Registers (3x) -->
-                        <tr class="table-section"><td colspan="4">Input Registers (3x / Read-Only)</td></tr>
-                        <tr>
-                            <td><code>0x0000 (0)</code></td>
-                            <td>Sensor 1 Reading</td>
-                            <td id="val_sensor1"><span class="badge badge-unknown">Unknown</span></td>
-                            <td style="text-align: right;"><button class="btn-sm" onclick="readItem('input_register', 0, this)">Read</button></td>
-                        </tr>
-                        <tr>
-                            <td><code>0x0001 (1)</code></td>
-                            <td>Sensor 2 Reading</td>
-                            <td id="val_sensor2"><span class="badge badge-unknown">Unknown</span></td>
-                            <td style="text-align: right;"><button class="btn-sm" onclick="readItem('input_register', 1, this)">Read</button></td>
-                        </tr>
-
-                        <!-- Holding Registers (4x) -->
-                        <tr class="table-section"><td colspan="4">Holding Registers (4x / Read-Write)</td></tr>
-                        <tr>
-                            <td><code>0x0000 (0)</code></td>
-                            <td>Hardware ID (High)</td>
-                            <td id="val_hw_id_high"><span class="badge badge-unknown">Unknown</span></td>
-                            <td style="text-align: right;"><button class="btn-sm" onclick="readItem('holding_register', 0, this)">Read</button></td>
-                        </tr>
-                        <tr>
-                            <td><code>0x0001 (1)</code></td>
-                            <td>Hardware ID (Low)</td>
-                            <td id="val_hw_id_low"><span class="badge badge-unknown">Unknown</span></td>
-                            <td style="text-align: right;"><button class="btn-sm" onclick="readItem('holding_register', 1, this)">Read</button></td>
-                        </tr>
-                        <tr>
-                            <td><code>0x0002 (2)</code></td>
-                            <td>TX Counter (High)</td>
-                            <td id="val_tx_count_high"><span class="badge badge-unknown">Unknown</span></td>
-                            <td style="text-align: right;"><button class="btn-sm" onclick="readItem('holding_register', 2, this)">Read</button></td>
-                        </tr>
-                        <tr>
-                            <td><code>0x0003 (3)</code></td>
-                            <td>TX Counter (Low)</td>
-                            <td id="val_tx_count_low"><span class="badge badge-unknown">Unknown</span></td>
-                            <td style="text-align: right;"><button class="btn-sm" onclick="readItem('holding_register', 3, this)">Read</button></td>
-                        </tr>
-                        <tr>
-                            <td><code>0x0004 (4)</code></td>
-                            <td>Valve 1 Mirror Reg</td>
-                            <td id="val_valve1_reg"><span class="badge badge-unknown">Unknown</span></td>
-                            <td style="text-align: right;"><button class="btn-sm" onclick="readItem('holding_register', 4, this)">Read</button></td>
-                        </tr>
-                        <tr>
-                            <td><code>0x0005 (5)</code></td>
-                            <td>Valve 2 Mirror Reg</td>
-                            <td id="val_valve2_reg"><span class="badge badge-unknown">Unknown</span></td>
-                            <td style="text-align: right;"><button class="btn-sm" onclick="readItem('holding_register', 5, this)">Read</button></td>
-                        </tr>
-                        <tr>
-                            <td><code>0x0006 (6)</code></td>
-                            <td>Sensor 1 Mirror Reg</td>
-                            <td id="val_sensor1_reg"><span class="badge badge-unknown">Unknown</span></td>
-                            <td style="text-align: right;"><button class="btn-sm" onclick="readItem('holding_register', 6, this)">Read</button></td>
-                        </tr>
-                        <tr>
-                            <td><code>0x0007 (7)</code></td>
-                            <td>Sensor 2 Mirror Reg</td>
-                            <td id="val_sensor2_reg"><span class="badge badge-unknown">Unknown</span></td>
-                            <td style="text-align: right;"><button class="btn-sm" onclick="readItem('holding_register', 7, this)">Read</button></td>
-                        </tr>
-                        <tr>
-                            <td><code>0x0008 (8)</code></td>
-                            <td>Slave ID Reg</td>
-                            <td id="val_slave_id_reg"><span class="badge badge-unknown">Unknown</span></td>
-                            <td style="text-align: right;"><button class="btn-sm" onclick="readItem('holding_register', 8, this)">Read</button></td>
-                        </tr>
-                    </tbody>
-                </table>
+        <!-- App Header -->
+        <div class="app-header">
+            <h1 class="app-title">LoRa SX126X &amp; Modbus Manager</h1>
+            <div style="font-size: 0.82rem; color: var(--text-muted); background: var(--card-bg); padding: 0.45rem 0.85rem; border-radius: 999px; border: 1px solid var(--border);">
+                Last Sync: <strong id="last_update_disp" style="color: var(--text-main);">Never</strong>
             </div>
         </div>
 
-        <!-- Card 2: Modbus Controls (Write) -->
-        <div class="card">
-            <h1>Modbus Controls (Write)</h1>
-            
-            <div class="form-group">
-                <label>Target Slave ID (0 = Global Broadcast to All Slaves, 1–247 = Unicast)</label>
-                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-                    <input type="number" id="ctrl_slave_id" value="1" min="0" max="247" style="flex: 1; min-width: 140px;" oninput="onTargetSlaveChanged(this.value)">
-                    <button type="button" class="btn-sm" style="margin: 0; padding: 0.75rem 1rem; background: #f59e0b; color: #0f172a; font-weight: 700;" onclick="setTargetSlaveId(0)">Broadcast (0)</button>
-                    <button type="button" class="btn-sm" style="margin: 0; padding: 0.75rem 1rem;" onclick="setTargetSlaveId(1)">Slave 1</button>
+        <!-- Multi-Tab Navigation Bar -->
+        <div class="tabs-nav" role="tablist">
+            <button type="button" class="tab-btn active" id="tabBtn-telemetry" onclick="switchTab('telemetry')">
+                &#x1F4CA; Live Telemetry
+            </button>
+            <button type="button" class="tab-btn" id="tabBtn-controls" onclick="switchTab('controls')">
+                &#x1F39B; Modbus Controls
+            </button>
+            <button type="button" class="tab-btn" id="tabBtn-config" onclick="switchTab('config')">
+                &#x2699; LoRa &amp; Security Config
+            </button>
+        </div>
+
+        <!-- Shared Target Slave Selector Bar (Visible on Telemetry & Controls Tabs) -->
+        <div id="shared_slave_bar" class="slave-bar">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+                    <label style="margin: 0; font-size: 0.8rem;">Target Slave ID:</label>
+                    <input type="number" id="ctrl_slave_id" value="1" min="0" max="247" style="width: 90px; padding: 0.45rem 0.65rem; font-size: 0.95rem;" oninput="onTargetSlaveChanged(this.value)">
+                    <span style="font-size: 0.82rem; color: var(--text-muted);">Active: <strong id="telem_slave_id_disp" style="color: var(--primary);">1</strong></span>
                 </div>
-                <div id="broadcast_notice" style="display: none; margin-top: 0.5rem; padding: 0.5rem 0.75rem; border-radius: 6px; background: rgba(245, 158, 11, 0.15); border: 1px solid #f59e0b; color: #fbbf24; font-size: 0.82rem;">
-                    <strong>Global Broadcast Mode (Address 0):</strong> Write commands will be executed by <strong>ALL</strong> slaves simultaneously without sending a response. Read operations are disabled in broadcast mode.
+                <div id="slave_pills_container" class="slave-pills">
+                    <button type="button" class="pill-btn broadcast-pill" data-slave="0" onclick="setTargetSlaveId(0)">Broadcast (0)</button>
+                    <button type="button" class="pill-btn active-pill" data-slave="1" onclick="setTargetSlaveId(1)">Slave 1</button>
                 </div>
             </div>
-
-            <label style="margin-top: 1.25rem;">Valve Control (Coils 0 & 1 via FC 05)</label>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
-                <div style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px; border: 1px solid var(--border);">
-                    <div style="font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">Valve 1 (Coil 0x0)</div>
-                    <div style="display: flex; gap: 0.5rem;">
-                        <button type="button" style="margin-top: 0; background: #10b981; padding: 0.6rem;" onclick="setValve(1, true)">Open (1)</button>
-                        <button type="button" style="margin-top: 0; background: #ef4444; padding: 0.6rem;" onclick="setValve(1, false)">Close (0)</button>
-                    </div>
-                </div>
-                <div style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px; border: 1px solid var(--border);">
-                    <div style="font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">Valve 2 (Coil 0x1)</div>
-                    <div style="display: flex; gap: 0.5rem;">
-                        <button type="button" style="margin-top: 0; background: #10b981; padding: 0.6rem;" onclick="setValve(2, true)">Open (1)</button>
-                        <button type="button" style="margin-top: 0; background: #ef4444; padding: 0.6rem;" onclick="setValve(2, false)">Close (0)</button>
-                    </div>
-                </div>
-            </div>
-
-            <label>Write Holding Register (FC 06)</label>
-            <div style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px; border: 1px solid var(--border); display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.75rem; align-items: end;">
-                <div class="form-group" style="margin: 0;">
-                    <label style="font-size: 0.75rem;">Register Addr</label>
-                    <input type="number" id="write_reg_addr" value="8" placeholder="e.g. 8 for Slave ID">
-                </div>
-                <div class="form-group" style="margin: 0;">
-                    <label style="font-size: 0.75rem;">Value (16-bit)</label>
-                    <input type="number" id="write_reg_val" value="1" placeholder="Value">
-                </div>
-                <button type="button" style="margin-top: 0; padding: 0.85rem 1.25rem; width: auto;" onclick="writeRegister()">Send Write</button>
+            <div id="broadcast_notice" style="display: none; margin-top: 0.75rem; padding: 0.5rem 0.75rem; border-radius: 6px; background: rgba(245, 158, 11, 0.15); border: 1px solid #f59e0b; color: #fbbf24; font-size: 0.82rem;">
+                <strong>Global Broadcast Mode (Address 0):</strong> Write commands will be executed by <strong>ALL</strong> slaves simultaneously without sending a reply. Read operations require a unicast Slave ID (1–247).
             </div>
         </div>
 
-        <!-- Card 3: LoRa Hardware Configuration -->
-        <div class="card">
-            <h1>LoRa Configuration</h1>
-            <form id="configForm">
-                <div class="form-group">
-                    <label>Frequency (Hz)</label>
-                    <input type="number" id="frequency" name="frequency" value="915000000">
+        <!-- TAB 1: Modbus Live Telemetry & Reads -->
+        <div id="tab-telemetry" class="tab-pane active">
+            <div class="card">
+                <div class="card-header">
+                    <h1>Modbus Live Telemetry</h1>
+                    <button type="button" id="btnReadAll" class="btn-success" style="margin: 0; width: auto; padding: 0.65rem 1.25rem; font-size: 0.95rem;" onclick="readAllTelemetry()">
+                        &#x21bb; Read All Values
+                    </button>
                 </div>
-                <div class="form-group">
-                    <label>TX Power (dBm)</label>
-                    <input type="number" id="tx_power" name="tx_power" min="-9" max="22" step="1" value="22">
+
+                <div style="overflow-x: auto;">
+                    <table class="telem-table">
+                        <thead>
+                            <tr>
+                                <th>Type &amp; Address</th>
+                                <th>Parameter Name</th>
+                                <th>Value</th>
+                                <th style="text-align: right;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Coils (0x) -->
+                            <tr class="table-section"><td colspan="4">Coils (0x / Read-Write)</td></tr>
+                            <tr>
+                                <td><code>0x0000 (0)</code></td>
+                                <td>Valve 1</td>
+                                <td id="val_valve1"><span class="badge badge-unknown">Unknown</span></td>
+                                <td style="text-align: right;"><button class="btn-sm" onclick="readItem('coil', 0, this)">Read</button></td>
+                            </tr>
+                            <tr>
+                                <td><code>0x0001 (1)</code></td>
+                                <td>Valve 2</td>
+                                <td id="val_valve2"><span class="badge badge-unknown">Unknown</span></td>
+                                <td style="text-align: right;"><button class="btn-sm" onclick="readItem('coil', 1, this)">Read</button></td>
+                            </tr>
+
+                            <!-- Discrete Inputs (1x) -->
+                            <tr class="table-section"><td colspan="4">Discrete Inputs (1x / Read-Only)</td></tr>
+                            <tr>
+                                <td><code>0x0000 (0)</code></td>
+                                <td>Valve 1 Status</td>
+                                <td id="val_valve1_status"><span class="badge badge-unknown">Unknown</span></td>
+                                <td style="text-align: right;"><button class="btn-sm" onclick="readItem('discrete_input', 0, this)">Read</button></td>
+                            </tr>
+                            <tr>
+                                <td><code>0x0001 (1)</code></td>
+                                <td>Valve 2 Status</td>
+                                <td id="val_valve2_status"><span class="badge badge-unknown">Unknown</span></td>
+                                <td style="text-align: right;"><button class="btn-sm" onclick="readItem('discrete_input', 1, this)">Read</button></td>
+                            </tr>
+
+                            <!-- Input Registers (3x) -->
+                            <tr class="table-section"><td colspan="4">Input Registers (3x / Read-Only)</td></tr>
+                            <tr>
+                                <td><code>0x0000 (0)</code></td>
+                                <td>Sensor 1 Reading</td>
+                                <td id="val_sensor1"><span class="badge badge-unknown">Unknown</span></td>
+                                <td style="text-align: right;"><button class="btn-sm" onclick="readItem('input_register', 0, this)">Read</button></td>
+                            </tr>
+                            <tr>
+                                <td><code>0x0001 (1)</code></td>
+                                <td>Sensor 2 Reading</td>
+                                <td id="val_sensor2"><span class="badge badge-unknown">Unknown</span></td>
+                                <td style="text-align: right;"><button class="btn-sm" onclick="readItem('input_register', 1, this)">Read</button></td>
+                            </tr>
+
+                            <!-- Holding Registers (4x) -->
+                            <tr class="table-section"><td colspan="4">Holding Registers (4x / Read-Write)</td></tr>
+                            <tr>
+                                <td><code>0x0000 (0)</code></td>
+                                <td>Hardware ID (High)</td>
+                                <td id="val_hw_id_high"><span class="badge badge-unknown">Unknown</span></td>
+                                <td style="text-align: right;"><button class="btn-sm" onclick="readItem('holding_register', 0, this)">Read</button></td>
+                            </tr>
+                            <tr>
+                                <td><code>0x0001 (1)</code></td>
+                                <td>Hardware ID (Low)</td>
+                                <td id="val_hw_id_low"><span class="badge badge-unknown">Unknown</span></td>
+                                <td style="text-align: right;"><button class="btn-sm" onclick="readItem('holding_register', 1, this)">Read</button></td>
+                            </tr>
+                            <tr>
+                                <td><code>0x0002 (2)</code></td>
+                                <td>TX Counter (High)</td>
+                                <td id="val_tx_count_high"><span class="badge badge-unknown">Unknown</span></td>
+                                <td style="text-align: right;"><button class="btn-sm" onclick="readItem('holding_register', 2, this)">Read</button></td>
+                            </tr>
+                            <tr>
+                                <td><code>0x0003 (3)</code></td>
+                                <td>TX Counter (Low)</td>
+                                <td id="val_tx_count_low"><span class="badge badge-unknown">Unknown</span></td>
+                                <td style="text-align: right;"><button class="btn-sm" onclick="readItem('holding_register', 3, this)">Read</button></td>
+                            </tr>
+                            <tr>
+                                <td><code>0x0004 (4)</code></td>
+                                <td>Valve 1 Mirror Reg</td>
+                                <td id="val_valve1_reg"><span class="badge badge-unknown">Unknown</span></td>
+                                <td style="text-align: right;"><button class="btn-sm" onclick="readItem('holding_register', 4, this)">Read</button></td>
+                            </tr>
+                            <tr>
+                                <td><code>0x0005 (5)</code></td>
+                                <td>Valve 2 Mirror Reg</td>
+                                <td id="val_valve2_reg"><span class="badge badge-unknown">Unknown</span></td>
+                                <td style="text-align: right;"><button class="btn-sm" onclick="readItem('holding_register', 5, this)">Read</button></td>
+                            </tr>
+                            <tr>
+                                <td><code>0x0006 (6)</code></td>
+                                <td>Sensor 1 Mirror Reg</td>
+                                <td id="val_sensor1_reg"><span class="badge badge-unknown">Unknown</span></td>
+                                <td style="text-align: right;"><button class="btn-sm" onclick="readItem('holding_register', 6, this)">Read</button></td>
+                            </tr>
+                            <tr>
+                                <td><code>0x0007 (7)</code></td>
+                                <td>Sensor 2 Mirror Reg</td>
+                                <td id="val_sensor2_reg"><span class="badge badge-unknown">Unknown</span></td>
+                                <td style="text-align: right;"><button class="btn-sm" onclick="readItem('holding_register', 7, this)">Read</button></td>
+                            </tr>
+                            <tr>
+                                <td><code>0x0008 (8)</code></td>
+                                <td>Slave ID Reg</td>
+                                <td id="val_slave_id_reg"><span class="badge badge-unknown">Unknown</span></td>
+                                <td style="text-align: right;"><button class="btn-sm" onclick="readItem('holding_register', 8, this)">Read</button></td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            </div>
+        </div>
+
+        <!-- TAB 2: Modbus Controls (Write) -->
+        <div id="tab-controls" class="tab-pane">
+            <div class="card">
+                <h1>Modbus Controls (Write)</h1>
+
+                <label>Valve Control (Coils 0 &amp; 1 via FC 05 / FC 15)</label>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+                    <div style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px; border: 1px solid var(--border);">
+                        <div style="font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">Valve 1 (Coil 0x0)</div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button type="button" style="margin-top: 0; background: #10b981; padding: 0.6rem;" onclick="setValve(1, true)">Open (1)</button>
+                            <button type="button" style="margin-top: 0; background: #ef4444; padding: 0.6rem;" onclick="setValve(1, false)">Close (0)</button>
+                        </div>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px; border: 1px solid var(--border);">
+                        <div style="font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">Valve 2 (Coil 0x1)</div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button type="button" style="margin-top: 0; background: #10b981; padding: 0.6rem;" onclick="setValve(2, true)">Open (1)</button>
+                            <button type="button" style="margin-top: 0; background: #ef4444; padding: 0.6rem;" onclick="setValve(2, false)">Close (0)</button>
+                        </div>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px; border: 1px solid var(--border);">
+                        <div style="font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">Both Valves (FC 15 Multi-Coil)</div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button type="button" style="margin-top: 0; background: #10b981; padding: 0.6rem;" onclick="setMultipleValves(true, true)">Open Both</button>
+                            <button type="button" style="margin-top: 0; background: #ef4444; padding: 0.6rem;" onclick="setMultipleValves(false, false)">Close Both</button>
+                        </div>
+                    </div>
+                </div>
+
+                <label>Write Single Holding Register (FC 06)</label>
+                <div style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px; border: 1px solid var(--border); display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.75rem; align-items: end; margin-bottom: 1.5rem;">
+                    <div class="form-group" style="margin: 0;">
+                        <label style="font-size: 0.75rem;">Register Addr</label>
+                        <input type="number" id="write_reg_addr" value="8" placeholder="e.g. 8 for Slave ID">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label style="font-size: 0.75rem;">Value (16-bit)</label>
+                        <input type="number" id="write_reg_val" value="1" placeholder="Value">
+                    </div>
+                    <button type="button" style="margin-top: 0; padding: 0.85rem 1.25rem; width: auto;" onclick="writeRegister()">Send Write</button>
+                </div>
+
+                <label>Write Multiple Holding Registers (FC 16)</label>
+                <div style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px; border: 1px solid var(--border); display: grid; grid-template-columns: 1fr 2fr auto; gap: 0.75rem; align-items: end;">
+                    <div class="form-group" style="margin: 0;">
+                        <label style="font-size: 0.75rem;">Start Addr</label>
+                        <input type="number" id="write_multi_reg_addr" value="4" placeholder="Start Addr">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label style="font-size: 0.75rem;">Values (comma-separated)</label>
+                        <input type="text" id="write_multi_reg_vals" value="1, 1" placeholder="e.g. 1, 1">
+                    </div>
+                    <button type="button" style="margin-top: 0; padding: 0.85rem 1.25rem; width: auto;" onclick="writeMultipleRegisters()">Send Multi-Write</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 3: LoRa Hardware & Security Configuration -->
+        <div id="tab-config" class="tab-pane">
+            <div class="card">
+                <h1>LoRa &amp; Security Configuration</h1>
+                <form id="configForm">
                     <div class="form-group">
-                        <label>Spreading Factor</label>
-                        <select id="spreading_factor" name="spreading_factor">
-                            <option value="SF5">SF5</option>
-                            <option value="SF6">SF6</option>
-                            <option value="SF7">SF7</option>
-                            <option value="SF8">SF8</option>
-                            <option value="SF9" selected>SF9</option>
-                            <option value="SF10">SF10</option>
-                            <option value="SF11">SF11</option>
-                            <option value="SF12">SF12</option>
+                        <label>Frequency (Hz)</label>
+                        <input type="number" id="frequency" name="frequency" value="915000000">
+                    </div>
+                    <div class="form-group">
+                        <label>TX Power (dBm)</label>
+                        <input type="number" id="tx_power" name="tx_power" min="-9" max="22" step="1" value="22">
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div class="form-group">
+                            <label>Spreading Factor</label>
+                            <select id="spreading_factor" name="spreading_factor">
+                                <option value="SF5">SF5</option>
+                                <option value="SF6">SF6</option>
+                                <option value="SF7">SF7</option>
+                                <option value="SF8">SF8</option>
+                                <option value="SF9" selected>SF9</option>
+                                <option value="SF10">SF10</option>
+                                <option value="SF11">SF11</option>
+                                <option value="SF12">SF12</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Bandwidth</label>
+                            <select id="bandwidth" name="bandwidth">
+                                <option value="7.81">7.81</option>
+                                <option value="10.42">10.42</option>
+                                <option value="15.63">15.63</option>
+                                <option value="20.83">20.83</option>
+                                <option value="31.25">31.25</option>
+                                <option value="41.67">41.67</option>
+                                <option value="62.5">62.5</option>
+                                <option value="125" selected>125</option>
+                                <option value="250">250</option>
+                                <option value="500">500</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Coding Rate</label>
+                        <select id="coding_rate" name="coding_rate">
+                            <option value="4/5">4/5</option>
+                            <option value="4/6" selected>4/6</option>
+                            <option value="4/7">4/7</option>
+                            <option value="4/8">4/8</option>
                         </select>
                     </div>
-                    <div class="form-group">
-                        <label>Bandwidth</label>
-                        <select id="bandwidth" name="bandwidth">
-                            <option value="7.81">7.81</option>
-                            <option value="10.42">10.42</option>
-                            <option value="15.63">15.63</option>
-                            <option value="20.83">20.83</option>
-                            <option value="31.25">31.25</option>
-                            <option value="41.67">41.67</option>
-                            <option value="62.5">62.5</option>
-                            <option value="125" selected>125</option>
-                            <option value="250">250</option>
-                            <option value="500">500</option>
-                        </select>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="modbus_enabled" name="modbus_enabled" checked>
+                        <label for="modbus_enabled">Enable Modbus Protocol</label>
                     </div>
-                </div>
-                <div class="form-group">
-                    <label>Coding Rate</label>
-                    <select id="coding_rate" name="coding_rate">
-                        <option value="4/5">4/5</option>
-                        <option value="4/6" selected>4/6</option>
-                        <option value="4/7">4/7</option>
-                        <option value="4/8">4/8</option>
-                    </select>
-                </div>
-                <div class="form-group checkbox-group">
-                    <input type="checkbox" id="modbus_enabled" name="modbus_enabled" checked>
-                    <label for="modbus_enabled">Enable Modbus Protocol</label>
-                </div>
-                <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 1rem;">
-                    <div class="form-group">
-                        <label>Local Slave ID</label>
-                        <input type="number" id="modbus_slave_id" name="modbus_slave_id" value="1">
+                    <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 1rem;">
+                        <div class="form-group">
+                            <label>Default Slave ID</label>
+                            <input type="number" id="modbus_slave_id" name="modbus_slave_id" value="1">
+                        </div>
+                        <div class="form-group">
+                            <label>Address Devices</label>
+                            <input type="text" id="modbus_address_devices" name="modbus_address_devices" value="1" placeholder="e.g. 1, 2, 3">
+                        </div>
+                    </div>
+                    <div class="form-group checkbox-group" style="margin-top: 1.25rem;">
+                        <input type="checkbox" id="security_enabled" name="security_enabled" checked>
+                        <label for="security_enabled">Enable LoRa Security (AES-128-CTR + MIC, STM32 Compatible)</label>
                     </div>
                     <div class="form-group">
-                        <label>Address Devices</label>
-                        <input type="text" id="modbus_address_devices" name="modbus_address_devices" value="1" placeholder="e.g. 1, 2, 3">
+                        <label>AES-128 Pre-Shared Key (32 Hex Characters)</label>
+                        <input type="text" id="aes_key" name="aes_key" value="2B7E151628AED2A6ABF7158809CF4F3C" maxlength="32" placeholder="e.g. 2B7E151628AED2A6ABF7158809CF4F3C" style="font-family: monospace; letter-spacing: 1px;">
                     </div>
-                </div>
-                <div class="form-group checkbox-group" style="margin-top: 1.25rem;">
-                    <input type="checkbox" id="security_enabled" name="security_enabled" checked>
-                    <label for="security_enabled">Enable LoRa Security (AES-128-CTR + MIC, STM32 Compatible)</label>
-                </div>
-                <div class="form-group">
-                    <label>AES-128 Pre-Shared Key (32 Hex Characters)</label>
-                    <input type="text" id="aes_key" name="aes_key" value="2B7E151628AED2A6ABF7158809CF4F3C" maxlength="32" placeholder="e.g. 2B7E151628AED2A6ABF7158809CF4F3C" style="font-family: monospace; letter-spacing: 1px;">
-                </div>
-                <button type="submit">Save & Reload Device</button>
-            </form>
+                    <button type="submit">Save &amp; Reload Device</button>
+                </form>
+            </div>
         </div>
     </div>
     
     <div id="toast" class="toast">Configuration saved successfully!</div>
 
     <script>
+        function switchTab(tabName) {
+            const tabs = ['telemetry', 'controls', 'config'];
+            tabs.forEach(t => {
+                const pane = document.getElementById('tab-' + t);
+                const btn = document.getElementById('tabBtn-' + t);
+                if (pane) pane.classList.toggle('active', t === tabName);
+                if (btn) btn.classList.toggle('active', t === tabName);
+            });
+            const slaveBar = document.getElementById('shared_slave_bar');
+            if (slaveBar) {
+                slaveBar.style.display = (tabName === 'config') ? 'none' : 'block';
+            }
+            try { localStorage.setItem('lora_active_tab', tabName); } catch (e) {}
+        }
+
+        function renderSlavePills(devices) {
+            const container = document.getElementById('slave_pills_container');
+            if (!container) return;
+            const currentId = getTargetSlaveId();
+            let html = `<button type="button" class="pill-btn broadcast-pill ${currentId === 0 ? 'active-pill' : ''}" data-slave="0" onclick="setTargetSlaveId(0)">Broadcast (0)</button>`;
+            const list = (devices && devices.length > 0) ? devices : [1];
+            list.forEach(id => {
+                if (id > 0) {
+                    html += `<button type="button" class="pill-btn ${currentId === id ? 'active-pill' : ''}" data-slave="${id}" onclick="setTargetSlaveId(${id})">Slave ${id}</button>`;
+                }
+            });
+            container.innerHTML = html;
+        }
+
         fetch('/api/config')
             .then(res => res.json())
             .then(data => {
@@ -507,11 +695,20 @@ static const char* HTML_PAGE = R"RAW(
                 document.getElementById('modbus_enabled').checked = (data.modbus_enabled !== undefined) ? data.modbus_enabled : true;
                 const initSlave = (data.modbus_slave_id !== undefined) ? data.modbus_slave_id : 1;
                 document.getElementById('modbus_slave_id').value = initSlave;
+                const devList = (data.modbus_address_devices && data.modbus_address_devices.length > 0) ? data.modbus_address_devices : [1];
+                document.getElementById('modbus_address_devices').value = devList.join(', ');
+                renderSlavePills(devList);
                 setTargetSlaveId(initSlave);
-                document.getElementById('modbus_address_devices').value = (data.modbus_address_devices && data.modbus_address_devices.length > 0) ? data.modbus_address_devices.join(', ') : '1';
                 document.getElementById('security_enabled').checked = (data.security_enabled !== undefined) ? data.security_enabled : true;
                 document.getElementById('aes_key').value = data.aes_key || '2B7E151628AED2A6ABF7158809CF4F3C';
             });
+
+        try {
+            const savedTab = localStorage.getItem('lora_active_tab');
+            if (savedTab && ['telemetry', 'controls', 'config'].includes(savedTab)) {
+                switchTab(savedTab);
+            }
+        } catch (e) {}
 
         function getTargetSlaveId() {
             const val = parseInt(document.getElementById('ctrl_slave_id').value, 10);
@@ -530,6 +727,10 @@ static const char* HTML_PAGE = R"RAW(
             if (notice) {
                 notice.style.display = (safeId === 0) ? 'block' : 'none';
             }
+            document.querySelectorAll('#slave_pills_container .pill-btn').forEach(btn => {
+                const pillSlave = parseInt(btn.getAttribute('data-slave'), 10);
+                btn.classList.toggle('active-pill', pillSlave === safeId);
+            });
         }
 
         function setTargetSlaveId(id) {
@@ -693,6 +894,47 @@ static const char* HTML_PAGE = R"RAW(
             }).catch(err => showToast(`Request failed`, false));
         }
 
+        function setMultipleValves(v1Open, v2Open) {
+            const slaveId = getTargetSlaveId();
+            const targetDesc = (slaveId === 0) ? 'All Slaves (Broadcast 0)' : `Slave ${slaveId}`;
+            fetch('/api/modbus/write_multiple_coils', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ slave_id: slaveId, address: 0, values: [v1Open, v2Open] })
+            }).then(res => res.json()).then(data => {
+                if (data.status === 'ok') {
+                    showToast(`[${targetDesc}] Both valves set to ${v1Open ? 'OPEN' : 'CLOSED'}`);
+                    pollTelemetry();
+                } else {
+                    showToast(`Multi-coil write error: ${data.error}`, false);
+                }
+            }).catch(err => showToast(`Request failed`, false));
+        }
+
+        function writeMultipleRegisters() {
+            const slaveId = getTargetSlaveId();
+            const targetDesc = (slaveId === 0) ? 'All Slaves (Broadcast 0)' : `Slave ${slaveId}`;
+            const startAddr = parseInt(document.getElementById('write_multi_reg_addr').value, 10);
+            const rawVals = document.getElementById('write_multi_reg_vals').value;
+            const values = rawVals.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+            if (values.length === 0) {
+                showToast('Please enter at least one valid register value', false);
+                return;
+            }
+            fetch('/api/modbus/write_multiple_registers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ slave_id: slaveId, address: startAddr, values: values })
+            }).then(res => res.json()).then(data => {
+                if (data.status === 'ok') {
+                    showToast(`[${targetDesc}] Wrote ${values.length} registers starting at ${startAddr}`);
+                    pollTelemetry();
+                } else {
+                    showToast(`Multi-register write error: ${data.error}`, false);
+                }
+            }).catch(err => showToast(`Request failed`, false));
+        }
+
         document.getElementById('configForm').addEventListener('submit', function(e) {
             e.preventDefault();
             
@@ -719,6 +961,7 @@ static const char* HTML_PAGE = R"RAW(
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(config, null, 4)
             }).then(() => {
+                renderSlavePills(devices);
                 showToast('Configuration saved successfully!');
             });
         });
