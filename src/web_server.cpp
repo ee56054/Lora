@@ -372,8 +372,15 @@ static const char* HTML_PAGE = R"RAW(
             <h1>Modbus Controls (Write)</h1>
             
             <div class="form-group">
-                <label>Target Slave ID</label>
-                <input type="number" id="ctrl_slave_id" value="1" min="1" max="247" onchange="document.getElementById('telem_slave_id_disp').innerText = this.value">
+                <label>Target Slave ID (0 = Global Broadcast to All Slaves, 1–247 = Unicast)</label>
+                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                    <input type="number" id="ctrl_slave_id" value="1" min="0" max="247" style="flex: 1; min-width: 140px;" oninput="onTargetSlaveChanged(this.value)">
+                    <button type="button" class="btn-sm" style="margin: 0; padding: 0.75rem 1rem; background: #f59e0b; color: #0f172a; font-weight: 700;" onclick="setTargetSlaveId(0)">Broadcast (0)</button>
+                    <button type="button" class="btn-sm" style="margin: 0; padding: 0.75rem 1rem;" onclick="setTargetSlaveId(1)">Slave 1</button>
+                </div>
+                <div id="broadcast_notice" style="display: none; margin-top: 0.5rem; padding: 0.5rem 0.75rem; border-radius: 6px; background: rgba(245, 158, 11, 0.15); border: 1px solid #f59e0b; color: #fbbf24; font-size: 0.82rem;">
+                    <strong>Global Broadcast Mode (Address 0):</strong> Write commands will be executed by <strong>ALL</strong> slaves simultaneously without sending a response. Read operations are disabled in broadcast mode.
+                </div>
             </div>
 
             <label style="margin-top: 1.25rem;">Valve Control (Coils 0 & 1 via FC 05)</label>
@@ -498,13 +505,37 @@ static const char* HTML_PAGE = R"RAW(
                 document.getElementById('bandwidth').value = data.bandwidth || '125';
                 document.getElementById('coding_rate').value = data.coding_rate || '4/6';
                 document.getElementById('modbus_enabled').checked = (data.modbus_enabled !== undefined) ? data.modbus_enabled : true;
-                document.getElementById('modbus_slave_id').value = data.modbus_slave_id || 1;
-                document.getElementById('ctrl_slave_id').value = data.modbus_slave_id || 1;
-                document.getElementById('telem_slave_id_disp').innerText = data.modbus_slave_id || 1;
+                const initSlave = (data.modbus_slave_id !== undefined) ? data.modbus_slave_id : 1;
+                document.getElementById('modbus_slave_id').value = initSlave;
+                setTargetSlaveId(initSlave);
                 document.getElementById('modbus_address_devices').value = (data.modbus_address_devices && data.modbus_address_devices.length > 0) ? data.modbus_address_devices.join(', ') : '1';
                 document.getElementById('security_enabled').checked = (data.security_enabled !== undefined) ? data.security_enabled : true;
                 document.getElementById('aes_key').value = data.aes_key || '2B7E151628AED2A6ABF7158809CF4F3C';
             });
+
+        function getTargetSlaveId() {
+            const val = parseInt(document.getElementById('ctrl_slave_id').value, 10);
+            return isNaN(val) ? 1 : val;
+        }
+
+        function formatSlaveIdLabel(id) {
+            return (id === 0) ? '0 (Global Broadcast)' : String(id);
+        }
+
+        function onTargetSlaveChanged(val) {
+            const id = parseInt(val, 10);
+            const safeId = isNaN(id) ? 1 : id;
+            document.getElementById('telem_slave_id_disp').innerText = formatSlaveIdLabel(safeId);
+            const notice = document.getElementById('broadcast_notice');
+            if (notice) {
+                notice.style.display = (safeId === 0) ? 'block' : 'none';
+            }
+        }
+
+        function setTargetSlaveId(id) {
+            document.getElementById('ctrl_slave_id').value = id;
+            onTargetSlaveChanged(id);
+        }
 
         function showToast(msg, isSuccess = true) {
             const toast = document.getElementById('toast');
@@ -516,8 +547,8 @@ static const char* HTML_PAGE = R"RAW(
 
         function updateTelemetryUI(data) {
             if (!data) return;
-            if (data.slave_id) {
-                document.getElementById('telem_slave_id_disp').innerText = data.slave_id;
+            if (data.slave_id !== undefined && data.slave_id !== null) {
+                document.getElementById('telem_slave_id_disp').innerText = formatSlaveIdLabel(data.slave_id);
             }
             document.getElementById('last_update_disp').innerText = data.last_update || 'Never';
 
@@ -565,7 +596,11 @@ static const char* HTML_PAGE = R"RAW(
         }
 
         function readItem(type, address, btn) {
-            const slaveId = parseInt(document.getElementById('ctrl_slave_id').value) || 1;
+            const slaveId = getTargetSlaveId();
+            if (slaveId === 0) {
+                showToast('Broadcast Address 0 is Write-Only (select Slave ID 1-247 to Read)', false);
+                return;
+            }
             const originalText = btn.innerText;
             btn.innerText = '...';
             btn.disabled = true;
@@ -591,7 +626,11 @@ static const char* HTML_PAGE = R"RAW(
         }
 
         function readAllTelemetry() {
-            const slaveId = parseInt(document.getElementById('ctrl_slave_id').value) || 1;
+            const slaveId = getTargetSlaveId();
+            if (slaveId === 0) {
+                showToast('Broadcast Address 0 is Write-Only (select Slave ID 1-247 to Read)', false);
+                return;
+            }
             const btn = document.getElementById('btnReadAll');
             const origText = btn.innerHTML;
             btn.innerHTML = 'Reading all...';
@@ -619,14 +658,15 @@ static const char* HTML_PAGE = R"RAW(
         }
 
         function setValve(valveIndex, open) {
-            const slaveId = parseInt(document.getElementById('ctrl_slave_id').value) || 1;
+            const slaveId = getTargetSlaveId();
+            const targetDesc = (slaveId === 0) ? 'All Slaves (Broadcast 0)' : `Slave ${slaveId}`;
             fetch('/api/modbus/write_valve', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ slave_id: slaveId, valve: valveIndex, open: open })
             }).then(res => res.json()).then(data => {
                 if (data.status === 'ok') {
-                    showToast(`Valve ${valveIndex} set to ${open ? 'OPEN (1)' : 'CLOSED (0)'}`);
+                    showToast(`[${targetDesc}] Valve ${valveIndex} set to ${open ? 'OPEN (1)' : 'CLOSED (0)'}`);
                     pollTelemetry();
                 } else {
                     showToast(`Write error: ${data.error}`, false);
@@ -635,16 +675,17 @@ static const char* HTML_PAGE = R"RAW(
         }
 
         function writeRegister() {
-            const slaveId = parseInt(document.getElementById('ctrl_slave_id').value) || 1;
-            const addr = parseInt(document.getElementById('write_reg_addr').value);
-            const val = parseInt(document.getElementById('write_reg_val').value);
+            const slaveId = getTargetSlaveId();
+            const targetDesc = (slaveId === 0) ? 'All Slaves (Broadcast 0)' : `Slave ${slaveId}`;
+            const addr = parseInt(document.getElementById('write_reg_addr').value, 10);
+            const val = parseInt(document.getElementById('write_reg_val').value, 10);
             fetch('/api/modbus/write_register', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ slave_id: slaveId, address: addr, value: val })
             }).then(res => res.json()).then(data => {
                 if (data.status === 'ok') {
-                    showToast(`Register ${addr} written with ${val}`);
+                    showToast(`[${targetDesc}] Register ${addr} written with ${val}`);
                     pollTelemetry();
                 } else {
                     showToast(`Write error: ${data.error}`, false);
@@ -890,6 +931,56 @@ void start_web_server() {
             } else {
                 std::string err = get_last_modbus_error();
                 if (err.empty()) err = "Failed to write valve";
+                res.status = 500;
+                res.set_content(nlohmann::json({{"status", "error"}, {"error", err}}).dump(), "application/json");
+            }
+        } catch (...) {
+            res.status = 400;
+            res.set_content("{\"status\": \"error\", \"error\": \"Invalid request JSON\"}", "application/json");
+        }
+    });
+
+    svr.Post("/api/modbus/write_multiple_coils", [](const httplib::Request& req, httplib::Response& res) {
+        try {
+            auto j = nlohmann::json::parse(req.body);
+            int slave_id = j.value("slave_id", 1);
+            int address = j.value("address", 0);
+            auto vals_json = j.at("values");
+            std::vector<uint8_t> values;
+            for (const auto& item : vals_json) {
+                if (item.is_boolean()) {
+                    values.push_back(item.get<bool>() ? 1 : 0);
+                } else {
+                    values.push_back(item.get<int>() != 0 ? 1 : 0);
+                }
+            }
+            bool success = modbus_write_multiple_coils(slave_id, address, (int)values.size(), values.data());
+            if (success) {
+                res.set_content("{\"status\": \"ok\"}", "application/json");
+            } else {
+                std::string err = get_last_modbus_error();
+                if (err.empty()) err = "Failed to write multiple coils";
+                res.status = 500;
+                res.set_content(nlohmann::json({{"status", "error"}, {"error", err}}).dump(), "application/json");
+            }
+        } catch (...) {
+            res.status = 400;
+            res.set_content("{\"status\": \"error\", \"error\": \"Invalid request JSON\"}", "application/json");
+        }
+    });
+
+    svr.Post("/api/modbus/write_multiple_registers", [](const httplib::Request& req, httplib::Response& res) {
+        try {
+            auto j = nlohmann::json::parse(req.body);
+            int slave_id = j.value("slave_id", 1);
+            int address = j.value("address", 0);
+            std::vector<uint16_t> values = j.at("values").get<std::vector<uint16_t>>();
+            bool success = modbus_write_multiple_holding_registers(slave_id, address, (int)values.size(), values.data());
+            if (success) {
+                res.set_content("{\"status\": \"ok\"}", "application/json");
+            } else {
+                std::string err = get_last_modbus_error();
+                if (err.empty()) err = "Failed to write multiple registers";
                 res.status = 500;
                 res.set_content(nlohmann::json({{"status", "error"}, {"error", err}}).dump(), "application/json");
             }

@@ -51,7 +51,11 @@ Optimized for **Orange Pi Zero 2W** (wiringPi / wiringOP pin mapping):
 
 ## Modbus Address Map
 
-**Default Slave ID:** `1` (Configurable 1–247 via Register 8)
+- **Default Unicast Slave ID:** `1` (Configurable `1`–`247` via Register 8)
+- **Global Broadcast Address:** `0` (`MODBUS_BROADCAST_ADDRESS`)
+  - Supported for all **Write** Function Codes (`05`, `06`, `15`, `16`).
+  - When targeting Slave ID `0`, all listening slaves execute the command simultaneously without transmitting a reply over LoRa (preventing RF collisions).
+  - Read operations (`01`, `02`, `03`, `04`) are rejected on Broadcast Address `0` per the Modbus RTU specification.
 
 ### Coils (0x / Read-Write)
 | Address | Name | Function Codes | Description |
@@ -249,17 +253,17 @@ Queries all 15 addresses for the specified target slave ID.
 ```
 
 #### `POST /api/modbus/write_valve`
-Convenience endpoint to control Valve 1 or Valve 2 via Coil FC 05.
+Convenience endpoint to control Valve 1 or Valve 2 via Coil FC 05 (supports `slave_id: 0` for global broadcast or `1..247` for unicast).
 ```json
 {
-  "slave_id": 1,
+  "slave_id": 0,
   "valve": 1,
   "open": true
 }
 ```
 
 #### `POST /api/modbus/write_coil`
-Write any single coil (FC 05).
+Write any single coil (FC 05). Use `slave_id: 0` to broadcast to all slaves.
 ```json
 {
   "slave_id": 1,
@@ -269,12 +273,32 @@ Write any single coil (FC 05).
 ```
 
 #### `POST /api/modbus/write_register`
-Write a 16-bit value to any holding register (FC 06).
+Write a 16-bit value to any holding register (FC 06). Use `slave_id: 0` to broadcast to all slaves.
 ```json
 {
   "slave_id": 1,
   "address": 8,
   "value": 2
+}
+```
+
+#### `POST /api/modbus/write_multiple_coils`
+Write multiple coils (FC 15). Supports `slave_id: 0` (broadcast) or `1..247`.
+```json
+{
+  "slave_id": 0,
+  "address": 0,
+  "values": [true, false]
+}
+```
+
+#### `POST /api/modbus/write_multiple_registers`
+Write multiple holding registers (FC 16). Supports `slave_id: 0` (broadcast) or `1..247`.
+```json
+{
+  "slave_id": 0,
+  "address": 4,
+  "values": [1, 1]
 }
 ```
 

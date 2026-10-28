@@ -177,8 +177,9 @@ void modbus_print_packet_value(const uint8_t *payload, uint8_t payload_len) {
     crc_ok = (crc_calc == crc_recv);
   }
 
-  std::cout << "  [Modbus Decode] Slave ID: " << (int)slave << ", FC: 0x"
-            << std::hex << (int)fc << std::dec;
+  std::cout << "  [Modbus Decode] Slave ID: " << (int)slave
+            << (slave == MODBUS_BROADCAST_ADDRESS ? " (GLOBAL BROADCAST)" : "")
+            << ", FC: 0x" << std::hex << (int)fc << std::dec;
   if (payload_len >= 4) {
     std::cout << (crc_ok ? " [CRC OK]" : " [CRC MISMATCH]");
   }
@@ -365,11 +366,41 @@ void run_modbus_loop(sx126x_mod_params_lora_t *mod_params,
 
 // --- Modbus Read Functions Implementation ---
 
+static bool validate_read_slave_id(int slave_id) {
+  if (slave_id == MODBUS_BROADCAST_ADDRESS) {
+    std::string err = "Broadcast address 0 is write-only in Modbus (cannot read from Slave 0)";
+    std::cerr << "[Modbus Read] Error: " << err << std::endl;
+    set_last_modbus_error(err);
+    return false;
+  }
+  if (slave_id < 1 || slave_id > 247) {
+    std::string err = "Invalid Slave ID " + std::to_string(slave_id) + " for Read (must be 1..247)";
+    std::cerr << "[Modbus Read] Error: " << err << std::endl;
+    set_last_modbus_error(err);
+    return false;
+  }
+  return true;
+}
+
+static bool validate_write_slave_id(int slave_id) {
+  // Slave ID 0 = Global Broadcast (MODBUS_BROADCAST_ADDRESS), 1..247 = Unicast Slave ID
+  if (slave_id < 0 || slave_id > 247) {
+    std::string err = "Invalid Slave ID " + std::to_string(slave_id) + " for Write (must be 0 for broadcast or 1..247)";
+    std::cerr << "[Modbus Write] Error: " << err << std::endl;
+    set_last_modbus_error(err);
+    return false;
+  }
+  return true;
+}
+
 bool modbus_read_coil_val(int slave_id, int address, bool &out_val) {
   if (!is_modbus_ready()) {
     std::string err = "Modbus context not initialized (check if modbus_enabled is true in config.json)";
     std::cerr << "[Modbus Read] Error: " << err << std::endl;
     set_last_modbus_error(err);
+    return false;
+  }
+  if (!validate_read_slave_id(slave_id)) {
     return false;
   }
   std::lock_guard<std::mutex> lock(g_modbus_mutex);
@@ -417,6 +448,9 @@ bool modbus_read_discrete_input_val(int slave_id, int address, bool &out_val) {
     set_last_modbus_error(err);
     return false;
   }
+  if (!validate_read_slave_id(slave_id)) {
+    return false;
+  }
   std::lock_guard<std::mutex> lock(g_modbus_mutex);
   modbus_flush(g_modbus_ctx);
   modbus_set_slave(g_modbus_ctx, slave_id);
@@ -462,6 +496,9 @@ bool modbus_read_input_reg_val(int slave_id, int address, uint16_t &out_val) {
     set_last_modbus_error(err);
     return false;
   }
+  if (!validate_read_slave_id(slave_id)) {
+    return false;
+  }
   std::lock_guard<std::mutex> lock(g_modbus_mutex);
   modbus_flush(g_modbus_ctx);
   modbus_set_slave(g_modbus_ctx, slave_id);
@@ -505,6 +542,9 @@ bool modbus_read_holding_reg_val(int slave_id, int address, uint16_t &out_val) {
     std::string err = "Modbus context not initialized (check if modbus_enabled is true in config.json)";
     std::cerr << "[Modbus Read] Error: " << err << std::endl;
     set_last_modbus_error(err);
+    return false;
+  }
+  if (!validate_read_slave_id(slave_id)) {
     return false;
   }
   std::lock_guard<std::mutex> lock(g_modbus_mutex);
@@ -555,6 +595,10 @@ bool modbus_read_holding_reg_val(int slave_id, int address, uint16_t &out_val) {
 }
 
 bool modbus_read_all(int slave_id) {
+  if (!validate_read_slave_id(slave_id)) {
+    return false;
+  }
+
   std::cout << "\n========================================" << std::endl;
   std::cout << ">>> [MODBUS READ ALL] Reading full telemetry for Slave " << slave_id << " <<<" << std::endl;
   std::cout << "========================================" << std::endl;
@@ -599,12 +643,17 @@ bool modbus_write_coil(int slave_id, int address, bool state) {
     set_last_modbus_error(err);
     return false;
   }
+  if (!validate_write_slave_id(slave_id)) {
+    return false;
+  }
   std::lock_guard<std::mutex> lock(g_modbus_mutex);
 
   modbus_flush(g_modbus_ctx);
   modbus_set_slave(g_modbus_ctx, slave_id);
 
-  std::cout << "\n>>> [MODBUS WRITE COIL (FC 05)] Target Slave " << slave_id
+  bool is_broadcast = (slave_id == MODBUS_BROADCAST_ADDRESS);
+  std::cout << "\n>>> [MODBUS " << (is_broadcast ? "BROADCAST " : "") << "WRITE COIL (FC 05)] Target "
+            << (is_broadcast ? "ALL SLAVES (Broadcast Address 0)" : ("Slave " + std::to_string(slave_id)))
             << ", Address 0x" << std::hex << address << std::dec << " (" << address << ") -> "
             << (state ? "1 (Open/ON)" : "0 (Closed/OFF)") << " <<<" << std::endl;
 
@@ -621,15 +670,23 @@ bool modbus_write_coil(int slave_id, int address, bool state) {
     return false;
   }
 
-  std::cout << ">>> [MODBUS WRITE COIL SUCCESS] Slave " << slave_id
+  std::cout << ">>> [MODBUS " << (is_broadcast ? "BROADCAST " : "") << "WRITE COIL SUCCESS] "
+            << (is_broadcast ? "All Slaves (Addr 0)" : ("Slave " + std::to_string(slave_id)))
             << " Coil 0x" << std::hex << address << std::dec << " set to "
             << (state ? "1 (ON)" : "0 (OFF)") << " <<<" << std::endl;
 
   {
     std::lock_guard<std::mutex> t_lock(g_telemetry_mutex);
     g_telemetry.slave_id = slave_id;
-    if (address == 0) g_telemetry.valve1 = state ? 1 : 0;
-    else if (address == 1) g_telemetry.valve2 = state ? 1 : 0;
+    if (address == 0) {
+      g_telemetry.valve1 = state ? 1 : 0;
+      g_telemetry.valve1_status = state ? 1 : 0;
+      g_telemetry.valve1_reg = state ? 1 : 0;
+    } else if (address == 1) {
+      g_telemetry.valve2 = state ? 1 : 0;
+      g_telemetry.valve2_status = state ? 1 : 0;
+      g_telemetry.valve2_reg = state ? 1 : 0;
+    }
     g_telemetry.last_update = get_current_time_str();
   }
 
@@ -644,12 +701,17 @@ bool modbus_write_holding_register(int slave_id, int address, uint16_t value) {
     set_last_modbus_error(err);
     return false;
   }
+  if (!validate_write_slave_id(slave_id)) {
+    return false;
+  }
   std::lock_guard<std::mutex> lock(g_modbus_mutex);
 
   modbus_flush(g_modbus_ctx);
   modbus_set_slave(g_modbus_ctx, slave_id);
 
-  std::cout << "\n>>> [MODBUS WRITE REGISTER (FC 06)] Target Slave " << slave_id
+  bool is_broadcast = (slave_id == MODBUS_BROADCAST_ADDRESS);
+  std::cout << "\n>>> [MODBUS " << (is_broadcast ? "BROADCAST " : "") << "WRITE REGISTER (FC 06)] Target "
+            << (is_broadcast ? "ALL SLAVES (Broadcast Address 0)" : ("Slave " + std::to_string(slave_id)))
             << ", Address 0x" << std::hex << address << std::dec << " (" << address << ") -> "
             << value << " (0x" << std::hex << value << std::dec << ") <<<" << std::endl;
 
@@ -666,7 +728,8 @@ bool modbus_write_holding_register(int slave_id, int address, uint16_t value) {
     return false;
   }
 
-  std::cout << ">>> [MODBUS WRITE REGISTER SUCCESS] Slave " << slave_id
+  std::cout << ">>> [MODBUS " << (is_broadcast ? "BROADCAST " : "") << "WRITE REGISTER SUCCESS] "
+            << (is_broadcast ? "All Slaves (Addr 0)" : ("Slave " + std::to_string(slave_id)))
             << " Register 0x" << std::hex << address << std::dec << " written with "
             << value << " (0x" << std::hex << value << std::dec << ") <<<" << std::endl;
 
@@ -674,9 +737,19 @@ bool modbus_write_holding_register(int slave_id, int address, uint16_t value) {
     std::lock_guard<std::mutex> t_lock(g_telemetry_mutex);
     g_telemetry.slave_id = slave_id;
     switch (address) {
-      case 4: g_telemetry.valve1_reg = value; break;
-      case 5: g_telemetry.valve2_reg = value; break;
-      case 8: g_telemetry.slave_id_reg = value; break;
+      case 4:
+        g_telemetry.valve1_reg = value;
+        g_telemetry.valve1 = (value != 0) ? 1 : 0;
+        g_telemetry.valve1_status = (value != 0) ? 1 : 0;
+        break;
+      case 5:
+        g_telemetry.valve2_reg = value;
+        g_telemetry.valve2 = (value != 0) ? 1 : 0;
+        g_telemetry.valve2_status = (value != 0) ? 1 : 0;
+        break;
+      case 8:
+        g_telemetry.slave_id_reg = value;
+        break;
     }
     g_telemetry.last_update = get_current_time_str();
   }
@@ -692,12 +765,17 @@ bool modbus_write_multiple_coils(int slave_id, int address, int count, const uin
     set_last_modbus_error(err);
     return false;
   }
+  if (!validate_write_slave_id(slave_id)) {
+    return false;
+  }
   std::lock_guard<std::mutex> lock(g_modbus_mutex);
 
   modbus_flush(g_modbus_ctx);
   modbus_set_slave(g_modbus_ctx, slave_id);
 
-  std::cout << "\n>>> [MODBUS WRITE MULTIPLE COILS (FC 15)] Target Slave " << slave_id
+  bool is_broadcast = (slave_id == MODBUS_BROADCAST_ADDRESS);
+  std::cout << "\n>>> [MODBUS " << (is_broadcast ? "BROADCAST " : "") << "WRITE MULTIPLE COILS (FC 15)] Target "
+            << (is_broadcast ? "ALL SLAVES (Broadcast Address 0)" : ("Slave " + std::to_string(slave_id)))
             << ", Start Address 0x" << std::hex << address << std::dec << ", Count: " << count << " <<<" << std::endl;
 
   int rc = modbus_write_bits(g_modbus_ctx, address, count, values);
@@ -713,7 +791,8 @@ bool modbus_write_multiple_coils(int slave_id, int address, int count, const uin
     return false;
   }
 
-  std::cout << ">>> [MODBUS WRITE MULTIPLE COILS SUCCESS] Slave " << slave_id
+  std::cout << ">>> [MODBUS " << (is_broadcast ? "BROADCAST " : "") << "WRITE MULTIPLE COILS SUCCESS] "
+            << (is_broadcast ? "All Slaves (Addr 0)" : ("Slave " + std::to_string(slave_id)))
             << " wrote " << count << " coils starting at 0x" << std::hex << address << std::dec << " <<<" << std::endl;
   set_last_modbus_error("");
   return true;
@@ -726,12 +805,17 @@ bool modbus_write_multiple_holding_registers(int slave_id, int address, int coun
     set_last_modbus_error(err);
     return false;
   }
+  if (!validate_write_slave_id(slave_id)) {
+    return false;
+  }
   std::lock_guard<std::mutex> lock(g_modbus_mutex);
 
   modbus_flush(g_modbus_ctx);
   modbus_set_slave(g_modbus_ctx, slave_id);
 
-  std::cout << "\n>>> [MODBUS WRITE MULTIPLE REGISTERS (FC 16)] Target Slave " << slave_id
+  bool is_broadcast = (slave_id == MODBUS_BROADCAST_ADDRESS);
+  std::cout << "\n>>> [MODBUS " << (is_broadcast ? "BROADCAST " : "") << "WRITE MULTIPLE REGISTERS (FC 16)] Target "
+            << (is_broadcast ? "ALL SLAVES (Broadcast Address 0)" : ("Slave " + std::to_string(slave_id)))
             << ", Start Address 0x" << std::hex << address << std::dec << ", Count: " << count << " <<<" << std::endl;
 
   int rc = modbus_write_registers(g_modbus_ctx, address, count, values);
@@ -747,7 +831,8 @@ bool modbus_write_multiple_holding_registers(int slave_id, int address, int coun
     return false;
   }
 
-  std::cout << ">>> [MODBUS WRITE MULTIPLE REGISTERS SUCCESS] Slave " << slave_id
+  std::cout << ">>> [MODBUS " << (is_broadcast ? "BROADCAST " : "") << "WRITE MULTIPLE REGISTERS SUCCESS] "
+            << (is_broadcast ? "All Slaves (Addr 0)" : ("Slave " + std::to_string(slave_id)))
             << " wrote " << count << " registers starting at 0x" << std::hex << address << std::dec << " <<<" << std::endl;
   set_last_modbus_error("");
   return true;

@@ -18,6 +18,11 @@ struct modbus_lora_data_t {
 };
 
 static int _modbus_lora_set_slave(modbus_t *ctx, int slave) {
+    // Allow Broadcast Address 0 (MODBUS_BROADCAST_ADDRESS) and Unicast Slave IDs 1..247
+    if (slave < 0 || slave > 247) {
+        errno = EINVAL;
+        return -1;
+    }
     ctx->slave = slave;
     return 0;
 }
@@ -51,12 +56,33 @@ static int _modbus_lora_send_msg_pre(uint8_t *req, int req_length) {
 
 static ssize_t _modbus_lora_send(modbus_t *ctx, const uint8_t *req, int req_length) {
     modbus_lora_data_t *data = (modbus_lora_data_t *)ctx->backend_data;
-    std::cout << "[Modbus LoRa] Sending request (" << req_length << " bytes): ";
+    bool is_broadcast = (req_length > 0 && req[0] == MODBUS_BROADCAST_ADDRESS);
+
+    if (is_broadcast) {
+        std::cout << "[Modbus LoRa] Sending GLOBAL BROADCAST request (Slave 0, " << req_length << " bytes): ";
+    } else {
+        std::cout << "[Modbus LoRa] Sending request (" << req_length << " bytes): ";
+    }
     for (int i = 0; i < req_length; i++) {
         printf("%02X ", req[i]);
     }
     std::cout << std::endl;
+
     if (transmit(req, req_length, data->pkt_params)) {
+        if (is_broadcast && req_length >= 6) {
+            // Per Modbus RTU specification, slaves NEVER reply to broadcast (Slave 0) requests.
+            // Synthesize the 8-byte confirmation frame (req[0..5] + CRC16) into rx_buffer so
+            // libmodbus completes the write call immediately without timing out waiting for a reply.
+            uint8_t confirm[8];
+            memcpy(confirm, req, 6);
+            uint16_t crc = modbus_crc16(confirm, 6);
+            confirm[6] = crc & 0x00FF;
+            confirm[7] = (crc >> 8) & 0x00FF;
+            data->rx_buffer.assign(confirm, confirm + 8);
+            data->rx_offset = 0;
+            usleep(100000); // 100ms broadcast turnaround delay for radio TX completion
+            std::cout << "[Modbus LoRa] Broadcast transmitted (no slave response expected)" << std::endl;
+        }
         return req_length;
     }
     return -1;
