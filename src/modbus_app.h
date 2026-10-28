@@ -100,5 +100,22 @@ ModbusTelemetry get_modbus_telemetry();
 // Retrieve description of last Modbus error
 std::string get_last_modbus_error();
 
+// --- Modbus Device Discovery / Scan ---
+
+struct ModbusDeviceProbe {
+  int slave_id = 0;
+  bool online = false;
+  uint32_t hw_id = 0;
+  uint32_t tx_count = 0;
+  int valve1 = -1;
+  int valve2 = -1;
+  int sensor1 = -1;
+  int sensor2 = -1;
+  int slave_id_reg = -1;
+};
+
+// Probe a single Slave ID (1..247) with a custom response timeout (ms)
+bool modbus_probe_slave(int slave_id, int timeout_ms, ModbusDeviceProbe &out_info);
+
 #endif // MODBUS_APP_H
 

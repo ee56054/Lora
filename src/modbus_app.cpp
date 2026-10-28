@@ -859,4 +859,59 @@ bool modbus_write_remote_slave_id(int current_slave_id, int new_slave_id) {
   return modbus_write_holding_register(current_slave_id, 8, (uint16_t)new_slave_id);
 }
 
+bool modbus_probe_slave(int slave_id, int timeout_ms, ModbusDeviceProbe &out_info) {
+  out_info = ModbusDeviceProbe{};
+  out_info.slave_id = slave_id;
+  out_info.online = false;
+
+  if (!is_modbus_ready()) {
+    set_last_modbus_error("Modbus context not initialized");
+    return false;
+  }
+  if (!validate_read_slave_id(slave_id)) {
+    return false;
+  }
+
+  if (timeout_ms < 200) timeout_ms = 200;
+  if (timeout_ms > 10000) timeout_ms = 10000;
+
+  std::lock_guard<std::mutex> lock(g_modbus_mutex);
+  modbus_flush(g_modbus_ctx);
+  modbus_set_slave(g_modbus_ctx, slave_id);
+
+  uint32_t to_sec = (uint32_t)(timeout_ms / 1000);
+  uint32_t to_usec = (uint32_t)((timeout_ms % 1000) * 1000);
+  modbus_set_response_timeout(g_modbus_ctx, to_sec, to_usec);
+
+  std::cout << "\n>>> [MODBUS SCAN PROBE] Probing Slave ID " << slave_id
+            << " (timeout: " << timeout_ms << " ms) <<<" << std::endl;
+
+  uint16_t regs[9] = {0};
+  int rc = modbus_read_registers(g_modbus_ctx, 0, 9, regs);
+
+  // Restore standard 3s response timeout
+  modbus_set_response_timeout(g_modbus_ctx, 3, 0);
+
+  if (rc == 9) {
+    out_info.online = true;
+    out_info.hw_id = ((uint32_t)regs[0] << 16) | (uint32_t)regs[1];
+    out_info.tx_count = ((uint32_t)regs[2] << 16) | (uint32_t)regs[3];
+    out_info.valve1 = regs[4];
+    out_info.valve2 = regs[5];
+    out_info.sensor1 = regs[6];
+    out_info.sensor2 = regs[7];
+    out_info.slave_id_reg = regs[8];
+
+    std::cout << ">>> [MODBUS SCAN FOUND] Slave " << slave_id
+              << " ONLINE | HW_ID: 0x" << std::hex << out_info.hw_id << std::dec
+              << " | V1: " << out_info.valve1 << ", V2: " << out_info.valve2
+              << " | S1: " << out_info.sensor1 << ", S2: " << out_info.sensor2 << " <<<" << std::endl;
+    set_last_modbus_error("");
+    return true;
+  }
+
+  std::cout << ">>> [MODBUS SCAN] Slave " << slave_id << " did not respond <<<" << std::endl;
+  return false;
+}
+
 

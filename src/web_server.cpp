@@ -363,6 +363,9 @@ static const char* HTML_PAGE = R"RAW(
             <button type="button" class="tab-btn" id="tabBtn-controls" onclick="switchTab('controls')">
                 &#x1F39B; Modbus Controls
             </button>
+            <button type="button" class="tab-btn" id="tabBtn-scan" onclick="switchTab('scan')">
+                &#x1F50D; Scan Devices
+            </button>
             <button type="button" class="tab-btn" id="tabBtn-config" onclick="switchTab('config')">
                 &#x2699; LoRa &amp; Security Config
             </button>
@@ -650,13 +653,95 @@ static const char* HTML_PAGE = R"RAW(
                 </form>
             </div>
         </div>
+
+        <!-- TAB 4: Scan Devices -->
+        <div id="tab-scan" class="tab-pane">
+            <div class="card">
+                <div class="card-header">
+                    <h1>Scan Modbus LoRa Devices</h1>
+                    <button type="button" class="btn-sm" id="btnSaveAllDiscovered" style="display: none; background: var(--success); border-color: var(--success); color: #fff; padding: 0.55rem 1rem;" onclick="saveAllDiscoveredToConfig()">
+                        &#x2795; Save Discovered to Config
+                    </button>
+                </div>
+
+                <p style="font-size: 0.88rem; color: var(--text-muted); margin-top: 0; margin-bottom: 1.25rem;">
+                    Probe a range of Modbus Slave IDs (1–247) over LoRa to discover active STM32 nodes and inspect their Hardware ID, Valves, and Sensors.
+                </p>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+                    <div class="form-group" style="margin: 0;">
+                        <label>Start Slave ID</label>
+                        <input type="number" id="scan_start_id" value="1" min="1" max="247">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label>End Slave ID</label>
+                        <input type="number" id="scan_end_id" value="10" min="1" max="247">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label>Timeout / Node (ms)</label>
+                        <input type="number" id="scan_timeout_ms" value="800" min="200" max="5000" step="100">
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.25rem;">
+                    <button type="button" id="btnStartScan" class="btn-success" style="margin: 0; flex: 2; min-width: 160px;" onclick="startDeviceScan()">
+                        &#x1F50D; Start Range Scan
+                    </button>
+                    <button type="button" id="btnScanConfigured" style="margin: 0; flex: 1; min-width: 160px; background: rgba(59, 130, 246, 0.2); border: 1px solid var(--primary);" onclick="scanConfiguredDevices()">
+                        &#x26A1; Scan Configured Only
+                    </button>
+                    <button type="button" id="btnStopScan" style="margin: 0; flex: 1; min-width: 120px; background: var(--danger); display: none;" onclick="stopDeviceScan()">
+                        &#x23F9; Stop Scan
+                    </button>
+                </div>
+
+                <!-- Progress Bar -->
+                <div id="scan_progress_wrap" style="display: none; margin-bottom: 1.25rem; background: rgba(255,255,255,0.03); padding: 0.85rem 1rem; border-radius: 8px; border: 1px solid var(--border);">
+                    <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 0.5rem;">
+                        <span id="scan_status_text" style="color: var(--text-main); font-weight: 600;">Scanning...</span>
+                        <span id="scan_found_count" style="color: var(--success); font-weight: 700;">0 found</span>
+                    </div>
+                    <div style="width: 100%; height: 8px; background: var(--bg-color); border-radius: 999px; overflow: hidden;">
+                        <div id="scan_progress_bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--primary), var(--success)); transition: width 0.2s ease;"></div>
+                    </div>
+                </div>
+
+                <!-- Discovered Devices Table -->
+                <div style="overflow-x: auto;">
+                    <table class="telem-table">
+                        <thead>
+                            <tr>
+                                <th>Slave ID</th>
+                                <th>Status</th>
+                                <th>Hardware ID</th>
+                                <th>Valves (V1 / V2)</th>
+                                <th>Sensors (S1 / S2)</th>
+                                <th>TX Count</th>
+                                <th style="text-align: right;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="scan_results_body">
+                            <tr>
+                                <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                                    Click <strong>Start Range Scan</strong> or <strong>Scan Configured Only</strong> to search for active LoRa Modbus devices.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
     </div>
     
     <div id="toast" class="toast">Configuration saved successfully!</div>
 
     <script>
+        let g_scanRunning = false;
+        let g_scanAbort = false;
+        let g_discoveredDevices = [];
+
         function switchTab(tabName) {
-            const tabs = ['telemetry', 'controls', 'config'];
+            const tabs = ['telemetry', 'controls', 'scan', 'config'];
             tabs.forEach(t => {
                 const pane = document.getElementById('tab-' + t);
                 const btn = document.getElementById('tabBtn-' + t);
@@ -665,7 +750,7 @@ static const char* HTML_PAGE = R"RAW(
             });
             const slaveBar = document.getElementById('shared_slave_bar');
             if (slaveBar) {
-                slaveBar.style.display = (tabName === 'config') ? 'none' : 'block';
+                slaveBar.style.display = (tabName === 'config' || tabName === 'scan') ? 'none' : 'block';
             }
             try { localStorage.setItem('lora_active_tab', tabName); } catch (e) {}
         }
@@ -705,7 +790,7 @@ static const char* HTML_PAGE = R"RAW(
 
         try {
             const savedTab = localStorage.getItem('lora_active_tab');
-            if (savedTab && ['telemetry', 'controls', 'config'].includes(savedTab)) {
+            if (savedTab && ['telemetry', 'controls', 'scan', 'config'].includes(savedTab)) {
                 switchTab(savedTab);
             }
         } catch (e) {}
@@ -933,6 +1018,185 @@ static const char* HTML_PAGE = R"RAW(
                     showToast(`Multi-register write error: ${data.error}`, false);
                 }
             }).catch(err => showToast(`Request failed`, false));
+        }
+
+        // --- Device Scan Logic ---
+
+        function renderScanResults(isFinished = false) {
+            const tbody = document.getElementById('scan_results_body');
+            const saveAllBtn = document.getElementById('btnSaveAllDiscovered');
+            if (!tbody) return;
+
+            if (saveAllBtn) {
+                saveAllBtn.style.display = (g_discoveredDevices.length > 0) ? 'inline-block' : 'none';
+            }
+
+            if (g_discoveredDevices.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">${
+                    isFinished
+                        ? 'Scan complete — no online Modbus devices found in the scanned range.'
+                        : 'Scanning... waiting for active devices to respond.'
+                }</td></tr>`;
+                return;
+            }
+
+            const renderValveBadge = (v, label) => {
+                if (v === 1) return `<span class="badge badge-open">${label}: OPEN</span>`;
+                if (v === 0) return `<span class="badge badge-closed">${label}: CLOSED</span>`;
+                return `<span class="badge badge-unknown">${label}: ?</span>`;
+            };
+
+            let html = '';
+            g_discoveredDevices.forEach(dev => {
+                const hwHex = '0x' + (dev.hw_id >>> 0).toString(16).toUpperCase().padStart(8, '0');
+                const s1 = (dev.sensor1 >= 0) ? `${(dev.sensor1 / 10.0).toFixed(1)} °C` : '?';
+                const s2 = (dev.sensor2 >= 0) ? `${dev.sensor2} hPa` : '?';
+                html += `<tr>
+                    <td><strong style="color: var(--primary); font-size: 1rem;">#${dev.slave_id}</strong></td>
+                    <td><span class="badge badge-open">ONLINE</span></td>
+                    <td><span class="badge badge-val">${hwHex}</span></td>
+                    <td>${renderValveBadge(dev.valve1, 'V1')} ${renderValveBadge(dev.valve2, 'V2')}</td>
+                    <td><span class="badge badge-val">${s1} / ${s2}</span></td>
+                    <td><code>${dev.tx_count}</code></td>
+                    <td style="text-align: right; white-space: nowrap;">
+                        <button type="button" class="btn-sm" style="margin-right: 0.35rem;" onclick="selectScannedDevice(${dev.slave_id})">Select Target</button>
+                        <button type="button" class="btn-sm" style="background: rgba(16, 185, 129, 0.15); border-color: #10b981; color: #34d399;" onclick="addDeviceToConfig(${dev.slave_id})">+ Config</button>
+                    </td>
+                </tr>`;
+            });
+            tbody.innerHTML = html;
+        }
+
+        async function runScanList(slaveIds, timeoutMs) {
+            if (g_scanRunning || !slaveIds || slaveIds.length === 0) return;
+            g_scanRunning = true;
+            g_scanAbort = false;
+            g_discoveredDevices = [];
+
+            const btnStart = document.getElementById('btnStartScan');
+            const btnConf = document.getElementById('btnScanConfigured');
+            const btnStop = document.getElementById('btnStopScan');
+            const progWrap = document.getElementById('scan_progress_wrap');
+            const progBar = document.getElementById('scan_progress_bar');
+            const statusText = document.getElementById('scan_status_text');
+            const foundCount = document.getElementById('scan_found_count');
+
+            if (btnStart) btnStart.disabled = true;
+            if (btnConf) btnConf.disabled = true;
+            if (btnStop) btnStop.style.display = 'inline-block';
+            if (progWrap) progWrap.style.display = 'block';
+            if (progBar) progBar.style.width = '0%';
+            if (foundCount) foundCount.innerText = '0 found';
+
+            renderScanResults(false);
+
+            const total = slaveIds.length;
+            for (let i = 0; i < total; i++) {
+                if (g_scanAbort) break;
+                const id = slaveIds[i];
+                const pct = Math.round(((i) / total) * 100);
+                if (progBar) progBar.style.width = `${pct}%`;
+                if (statusText) statusText.innerText = `Probing Slave ID ${id} (${i + 1} of ${total})...`;
+
+                try {
+                    const res = await fetch('/api/modbus/probe', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ slave_id: id, timeout_ms: timeoutMs })
+                    });
+                    const data = await res.json();
+                    if (data && data.online) {
+                        g_discoveredDevices.push(data);
+                        if (foundCount) foundCount.innerText = `${g_discoveredDevices.length} found`;
+                        renderScanResults(false);
+                    }
+                } catch (err) {
+                    console.debug('Probe failed for slave', id, err);
+                }
+            }
+
+            if (progBar) progBar.style.width = '100%';
+            if (statusText) {
+                statusText.innerText = g_scanAbort
+                    ? `Scan stopped (${g_discoveredDevices.length} device(s) found)`
+                    : `Scan finished (${total} address(es) probed, ${g_discoveredDevices.length} online)`;
+            }
+
+            renderScanResults(true);
+            g_scanRunning = false;
+            if (btnStart) btnStart.disabled = false;
+            if (btnConf) btnConf.disabled = false;
+            if (btnStop) btnStop.style.display = 'none';
+        }
+
+        function startDeviceScan() {
+            let startId = parseInt(document.getElementById('scan_start_id').value, 10) || 1;
+            let endId = parseInt(document.getElementById('scan_end_id').value, 10) || 10;
+            let timeoutMs = parseInt(document.getElementById('scan_timeout_ms').value, 10) || 800;
+
+            if (startId < 1) startId = 1;
+            if (endId > 247) endId = 247;
+            if (startId > endId) {
+                const tmp = startId;
+                startId = endId;
+                endId = tmp;
+            }
+            const list = [];
+            for (let id = startId; id <= endId; id++) {
+                list.push(id);
+            }
+            runScanList(list, timeoutMs);
+        }
+
+        function scanConfiguredDevices() {
+            const devicesStr = document.getElementById('modbus_address_devices').value;
+            const list = devicesStr.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n) && n >= 1 && n <= 247);
+            if (list.length === 0) {
+                showToast('No configured devices in Address Devices list', false);
+                return;
+            }
+            const timeoutMs = parseInt(document.getElementById('scan_timeout_ms').value, 10) || 800;
+            runScanList(list, timeoutMs);
+        }
+
+        function stopDeviceScan() {
+            g_scanAbort = true;
+            showToast('Stopping scan after current address...', false);
+        }
+
+        function selectScannedDevice(slaveId) {
+            setTargetSlaveId(slaveId);
+            switchTab('telemetry');
+            showToast(`Selected Slave ID ${slaveId} as active target`);
+        }
+
+        function addDeviceToConfig(slaveId) {
+            const input = document.getElementById('modbus_address_devices');
+            let current = input.value.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n) && n > 0);
+            if (!current.includes(slaveId)) {
+                current.push(slaveId);
+                current.sort((a, b) => a - b);
+            }
+            input.value = current.join(', ');
+            renderSlavePills(current);
+            document.getElementById('configForm').dispatchEvent(new Event('submit'));
+            showToast(`Slave ${slaveId} added to Address Devices & saved!`);
+        }
+
+        function saveAllDiscoveredToConfig() {
+            if (g_discoveredDevices.length === 0) return;
+            const input = document.getElementById('modbus_address_devices');
+            let current = input.value.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n) && n > 0);
+            g_discoveredDevices.forEach(d => {
+                if (d.slave_id > 0 && !current.includes(d.slave_id)) {
+                    current.push(d.slave_id);
+                }
+            });
+            current.sort((a, b) => a - b);
+            input.value = current.join(', ');
+            renderSlavePills(current);
+            document.getElementById('configForm').dispatchEvent(new Event('submit'));
+            showToast(`Saved ${g_discoveredDevices.length} discovered device(s) to Config!`);
         }
 
         document.getElementById('configForm').addEventListener('submit', function(e) {
@@ -1227,6 +1491,32 @@ void start_web_server() {
                 res.status = 500;
                 res.set_content(nlohmann::json({{"status", "error"}, {"error", err}}).dump(), "application/json");
             }
+        } catch (...) {
+            res.status = 400;
+            res.set_content("{\"status\": \"error\", \"error\": \"Invalid request JSON\"}", "application/json");
+        }
+    });
+
+    svr.Post("/api/modbus/probe", [](const httplib::Request& req, httplib::Response& res) {
+        try {
+            auto j = nlohmann::json::parse(req.body);
+            int slave_id = j.value("slave_id", 1);
+            int timeout_ms = j.value("timeout_ms", 800);
+            ModbusDeviceProbe info;
+            bool online = modbus_probe_slave(slave_id, timeout_ms, info);
+            nlohmann::json resp = {
+                {"status", "ok"},
+                {"slave_id", info.slave_id},
+                {"online", online},
+                {"hw_id", info.hw_id},
+                {"tx_count", info.tx_count},
+                {"valve1", info.valve1},
+                {"valve2", info.valve2},
+                {"sensor1", info.sensor1},
+                {"sensor2", info.sensor2},
+                {"slave_id_reg", info.slave_id_reg}
+            };
+            res.set_content(resp.dump(), "application/json");
         } catch (...) {
             res.status = 400;
             res.set_content("{\"status\": \"error\", \"error\": \"Invalid request JSON\"}", "application/json");
