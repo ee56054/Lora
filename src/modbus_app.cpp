@@ -3,6 +3,8 @@
 #include "config.h"
 #include "modbus.h"
 #include "modbus_lora.h"
+#include "mqtt_bridge.h"
+#include <nlohmann/json.hpp>
 #include <iostream>
 #include <cerrno>
 #include <unistd.h>
@@ -437,6 +439,7 @@ bool modbus_read_coil_val(int slave_id, int address, bool &out_val) {
     g_telemetry.last_update = get_current_time_str();
   }
 
+  mqtt_publish_telemetry(slave_id, get_modbus_telemetry());
   set_last_modbus_error("");
   return true;
 }
@@ -485,6 +488,7 @@ bool modbus_read_discrete_input_val(int slave_id, int address, bool &out_val) {
     g_telemetry.last_update = get_current_time_str();
   }
 
+  mqtt_publish_telemetry(slave_id, get_modbus_telemetry());
   set_last_modbus_error("");
   return true;
 }
@@ -533,6 +537,7 @@ bool modbus_read_input_reg_val(int slave_id, int address, uint16_t &out_val) {
     g_telemetry.last_update = get_current_time_str();
   }
 
+  mqtt_publish_telemetry(slave_id, get_modbus_telemetry());
   set_last_modbus_error("");
   return true;
 }
@@ -590,6 +595,7 @@ bool modbus_read_holding_reg_val(int slave_id, int address, uint16_t &out_val) {
     g_telemetry.last_update = get_current_time_str();
   }
 
+  mqtt_publish_telemetry(slave_id, get_modbus_telemetry());
   set_last_modbus_error("");
   return true;
 }
@@ -690,6 +696,7 @@ bool modbus_write_coil(int slave_id, int address, bool state) {
     g_telemetry.last_update = get_current_time_str();
   }
 
+  mqtt_publish_telemetry(slave_id, get_modbus_telemetry());
   set_last_modbus_error("");
   return true;
 }
@@ -754,6 +761,7 @@ bool modbus_write_holding_register(int slave_id, int address, uint16_t value) {
     g_telemetry.last_update = get_current_time_str();
   }
 
+  mqtt_publish_telemetry(slave_id, get_modbus_telemetry());
   set_last_modbus_error("");
   return true;
 }
@@ -906,6 +914,18 @@ bool modbus_probe_slave(int slave_id, int timeout_ms, ModbusDeviceProbe &out_inf
               << " ONLINE | HW_ID: 0x" << std::hex << out_info.hw_id << std::dec
               << " | V1: " << out_info.valve1 << ", V2: " << out_info.valve2
               << " | S1: " << out_info.sensor1 << ", S2: " << out_info.sensor2 << " <<<" << std::endl;
+    nlohmann::json j_probe = {
+      {"slave_id", slave_id},
+      {"online", true},
+      {"hw_id", out_info.hw_id},
+      {"tx_count", out_info.tx_count},
+      {"valve1", out_info.valve1},
+      {"valve2", out_info.valve2},
+      {"sensor1", out_info.sensor1},
+      {"sensor2", out_info.sensor2},
+      {"slave_id_reg", out_info.slave_id_reg}
+    };
+    mqtt_publish_modbus_event("probe", slave_id, j_probe.dump());
     set_last_modbus_error("");
     return true;
   }

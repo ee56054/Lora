@@ -1,5 +1,7 @@
 #include "web_server.h"
+#include "config.h"
 #include "modbus_app.h"
+#include "mqtt_bridge.h"
 #include <httplib.h>
 #include <iostream>
 #include <fstream>
@@ -77,7 +79,7 @@ static const char* HTML_PAGE = R"RAW(
             text-transform: uppercase;
             letter-spacing: 0.05em;
         }
-        input[type="text"], input[type="number"], select {
+        input[type="text"], input[type="number"], input[type="password"], select {
             width: 100%;
             padding: 0.875rem;
             border-radius: 8px;
@@ -365,6 +367,9 @@ static const char* HTML_PAGE = R"RAW(
             </button>
             <button type="button" class="tab-btn" id="tabBtn-scan" onclick="switchTab('scan')">
                 &#x1F50D; Scan Devices
+            </button>
+            <button type="button" class="tab-btn" id="tabBtn-mqtt" onclick="switchTab('mqtt')">
+                &#x1F4E1; MQTT Bridge <span id="mqtt_tab_dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#9ca3af;"></span>
             </button>
             <button type="button" class="tab-btn" id="tabBtn-config" onclick="switchTab('config')">
                 &#x2699; LoRa &amp; Security Config
@@ -731,6 +736,202 @@ static const char* HTML_PAGE = R"RAW(
                 </div>
             </div>
         </div>
+
+        <!-- TAB 5: MQTT <-> Modbus Bridge -->
+        <div id="tab-mqtt" class="tab-pane">
+            <!-- Status & Live Metrics Card -->
+            <div class="card">
+                <div class="card-header">
+                    <h1>MQTT &#x2194; Modbus RTU Bridge</h1>
+                    <span id="mqtt_status_badge" class="badge badge-unknown">CHECKING...</span>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.85rem; margin-bottom: 1.25rem;">
+                    <div style="background: rgba(255,255,255,0.03); padding: 0.85rem 1rem; border-radius: 8px; border: 1px solid var(--border);">
+                        <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Broker Endpoint</div>
+                        <div id="mqtt_disp_broker" style="font-weight: 700; font-family: monospace; margin-top: 0.25rem;">127.0.0.1:1883</div>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.03); padding: 0.85rem 1rem; border-radius: 8px; border: 1px solid var(--border);">
+                        <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Base Topic Prefix</div>
+                        <div id="mqtt_disp_prefix" style="font-weight: 700; font-family: monospace; color: var(--primary); margin-top: 0.25rem;">lora/modbus</div>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.03); padding: 0.85rem 1rem; border-radius: 8px; border: 1px solid var(--border);">
+                        <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Traffic (TX / RX)</div>
+                        <div style="font-weight: 700; font-family: monospace; margin-top: 0.25rem;">
+                            <span id="mqtt_disp_tx" style="color: #34d399;">0</span> TX / <span id="mqtt_disp_rx" style="color: #60a5fa;">0</span> RX
+                        </div>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.03); padding: 0.85rem 1rem; border-radius: 8px; border: 1px solid var(--border);">
+                        <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Connected Since</div>
+                        <div id="mqtt_disp_since" style="font-weight: 600; font-size: 0.85rem; margin-top: 0.25rem;">Never</div>
+                    </div>
+                </div>
+
+                <div id="mqtt_error_banner" style="display: none; margin-bottom: 1.25rem; padding: 0.65rem 0.9rem; border-radius: 8px; background: rgba(239, 68, 68, 0.15); border: 1px solid var(--danger); color: #fca5a5; font-size: 0.85rem;">
+                </div>
+
+                <form id="mqttConfigForm">
+                    <div class="form-group checkbox-group" style="margin-top: 0; margin-bottom: 1.25rem;">
+                        <input type="checkbox" id="mqtt_enabled" checked>
+                        <label for="mqtt_enabled">Enable MQTT &#x2194; Modbus Bridge</label>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1rem;">
+                        <div class="form-group">
+                            <label>MQTT Broker Host / IP</label>
+                            <input type="text" id="mqtt_host" value="127.0.0.1" placeholder="e.g. 127.0.0.1 or broker.hivemq.com">
+                        </div>
+                        <div class="form-group">
+                            <label>Broker Port</label>
+                            <input type="number" id="mqtt_port" value="1883" min="1" max="65535">
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div class="form-group">
+                            <label>Client ID</label>
+                            <input type="text" id="mqtt_client_id" value="orangepi_lora_modbus">
+                        </div>
+                        <div class="form-group">
+                            <label>Base Topic Prefix</label>
+                            <input type="text" id="mqtt_topic_prefix" value="lora/modbus" placeholder="e.g. lora/modbus">
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label>Username (Optional)</label>
+                            <input type="text" id="mqtt_username" placeholder="Leave empty if anonymous">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label>Password (Optional)</label>
+                            <input type="password" id="mqtt_password" placeholder="Leave empty if anonymous">
+                        </div>
+                    </div>
+
+                    <button type="submit">Save &amp; Reconnect MQTT Bridge</button>
+                </form>
+            </div>
+
+            <!-- Interactive Test Publish & Command Simulator Card -->
+            <div class="card">
+                <h1>Test MQTT Publish / Command Bridge</h1>
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0; margin-bottom: 1rem;">
+                    Publish a message to the broker or test a bridged command on <code>&lt;prefix&gt;/cmd/...</code> (supports Slave ID <code>1..247</code> and Broadcast <code>0</code>):
+                </p>
+
+                <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 1rem;">
+                    <button type="button" class="pill-btn" onclick="applyMqttPreset('cmd/write_valve', {slave_id: 1, valve: 1, open: true})">Preset: Open Valve 1</button>
+                    <button type="button" class="pill-btn broadcast-pill" onclick="applyMqttPreset('cmd/write_valve', {slave_id: 0, valve: 1, open: false})">Preset: Broadcast Close V1</button>
+                    <button type="button" class="pill-btn" onclick="applyMqttPreset('cmd/read', {slave_id: 1, type: 'input_register', address: 0})">Preset: Read Sensor 1</button>
+                    <button type="button" class="pill-btn" onclick="applyMqttPreset('cmd/read_all', {slave_id: 1})">Preset: Read All</button>
+                    <button type="button" class="pill-btn" onclick="applyMqttPreset('cmd/probe', {slave_id: 1, timeout_ms: 1000})">Preset: Probe Slave 1</button>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 2fr auto; gap: 0.75rem; align-items: end;">
+                    <div class="form-group" style="margin: 0;">
+                        <label style="font-size: 0.75rem;">Subtopic</label>
+                        <input type="text" id="mqtt_test_subtopic" value="cmd/write_valve" style="font-family: monospace;">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label style="font-size: 0.75rem;">JSON Payload</label>
+                        <input type="text" id="mqtt_test_payload" value='{"slave_id": 1, "valve": 1, "open": true}' style="font-family: monospace;">
+                    </div>
+                    <button type="button" class="btn-success" style="margin: 0; width: auto; padding: 0.85rem 1.25rem;" onclick="sendMqttTestPublish()">Publish</button>
+                </div>
+            </div>
+
+            <!-- Live MQTT Traffic Log & Topic Reference Card -->
+            <div class="card">
+                <div class="card-header">
+                    <h1>Live MQTT Bridge Traffic</h1>
+                    <button type="button" class="btn-sm" onclick="clearMqttLogs()">Clear Log</button>
+                </div>
+
+                <div style="overflow-x: auto; margin-bottom: 1.5rem;">
+                    <table class="telem-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 90px;">Time</th>
+                                <th style="width: 65px;">Dir</th>
+                                <th>Topic</th>
+                                <th>Payload</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mqtt_logs_body">
+                            <tr>
+                                <td colspan="4" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No MQTT traffic recorded yet.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <label>Supported MQTT Bridge Topics Reference</label>
+                <div style="overflow-x: auto;">
+                    <table class="telem-table" style="font-size: 0.82rem;">
+                        <thead>
+                            <tr>
+                                <th>Direction</th>
+                                <th>Topic Pattern</th>
+                                <th>Example JSON Payload / Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><span class="badge badge-open">PUB (TX)</span></td>
+                                <td><code>&lt;prefix&gt;/telemetry/&lt;slave_id&gt;</code></td>
+                                <td>Auto-published whenever Modbus read/write updates telemetry</td>
+                            </tr>
+                            <tr>
+                                <td><span class="badge badge-open">PUB (TX)</span></td>
+                                <td><code>&lt;prefix&gt;/response[/&lt;slave_id&gt;]</code></td>
+                                <td>Command execution result (<code>{"status":"ok", ...}</code>)</td>
+                            </tr>
+                            <tr>
+                                <td><span class="badge badge-val">SUB (RX)</span></td>
+                                <td><code>&lt;prefix&gt;/cmd/write_valve</code></td>
+                                <td><code>{"slave_id": 1, "valve": 1, "open": true}</code> (use <code>slave_id: 0</code> for broadcast)</td>
+                            </tr>
+                            <tr>
+                                <td><span class="badge badge-val">SUB (RX)</span></td>
+                                <td><code>&lt;prefix&gt;/cmd/write_coil</code></td>
+                                <td><code>{"slave_id": 1, "address": 0, "state": true}</code></td>
+                            </tr>
+                            <tr>
+                                <td><span class="badge badge-val">SUB (RX)</span></td>
+                                <td><code>&lt;prefix&gt;/cmd/write_register</code></td>
+                                <td><code>{"slave_id": 1, "address": 4, "value": 1}</code></td>
+                            </tr>
+                            <tr>
+                                <td><span class="badge badge-val">SUB (RX)</span></td>
+                                <td><code>&lt;prefix&gt;/cmd/write_multiple_coils</code></td>
+                                <td><code>{"slave_id": 0, "address": 0, "values": [1, 1]}</code></td>
+                            </tr>
+                            <tr>
+                                <td><span class="badge badge-val">SUB (RX)</span></td>
+                                <td><code>&lt;prefix&gt;/cmd/write_multiple_registers</code></td>
+                                <td><code>{"slave_id": 0, "address": 4, "values": [1, 1]}</code></td>
+                            </tr>
+                            <tr>
+                                <td><span class="badge badge-val">SUB (RX)</span></td>
+                                <td><code>&lt;prefix&gt;/cmd/read</code></td>
+                                <td><code>{"slave_id": 1, "type": "input_register", "address": 0}</code></td>
+                            </tr>
+                            <tr>
+                                <td><span class="badge badge-val">SUB (RX)</span></td>
+                                <td><code>&lt;prefix&gt;/cmd/read_all</code></td>
+                                <td><code>{"slave_id": 1}</code> — polls all Coils, Discrete Inputs, Input &amp; Holding Regs</td>
+                            </tr>
+                            <tr>
+                                <td><span class="badge badge-val">SUB (RX)</span></td>
+                                <td><code>&lt;prefix&gt;/cmd/probe</code></td>
+                                <td><code>{"slave_id": 1, "timeout_ms": 1000}</code> — probes device online status &amp; HW ID</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
     </div>
     
     <div id="toast" class="toast">Configuration saved successfully!</div>
@@ -741,7 +942,7 @@ static const char* HTML_PAGE = R"RAW(
         let g_discoveredDevices = [];
 
         function switchTab(tabName) {
-            const tabs = ['telemetry', 'controls', 'scan', 'config'];
+            const tabs = ['telemetry', 'controls', 'scan', 'mqtt', 'config'];
             tabs.forEach(t => {
                 const pane = document.getElementById('tab-' + t);
                 const btn = document.getElementById('tabBtn-' + t);
@@ -750,7 +951,10 @@ static const char* HTML_PAGE = R"RAW(
             });
             const slaveBar = document.getElementById('shared_slave_bar');
             if (slaveBar) {
-                slaveBar.style.display = (tabName === 'config' || tabName === 'scan') ? 'none' : 'block';
+                slaveBar.style.display = (tabName === 'config' || tabName === 'scan' || tabName === 'mqtt') ? 'none' : 'block';
+            }
+            if (tabName === 'mqtt') {
+                pollMqttStatus();
             }
             try { localStorage.setItem('lora_active_tab', tabName); } catch (e) {}
         }
@@ -786,11 +990,18 @@ static const char* HTML_PAGE = R"RAW(
                 setTargetSlaveId(initSlave);
                 document.getElementById('security_enabled').checked = (data.security_enabled !== undefined) ? data.security_enabled : true;
                 document.getElementById('aes_key').value = data.aes_key || '2B7E151628AED2A6ABF7158809CF4F3C';
+                document.getElementById('mqtt_enabled').checked = (data.mqtt_enabled !== undefined) ? data.mqtt_enabled : true;
+                document.getElementById('mqtt_host').value = data.mqtt_host || '127.0.0.1';
+                document.getElementById('mqtt_port').value = data.mqtt_port || 1883;
+                document.getElementById('mqtt_client_id').value = data.mqtt_client_id || 'orangepi_lora_modbus';
+                document.getElementById('mqtt_username').value = data.mqtt_username || '';
+                document.getElementById('mqtt_password').value = data.mqtt_password || '';
+                document.getElementById('mqtt_topic_prefix').value = data.mqtt_topic_prefix || 'lora/modbus';
             });
 
         try {
             const savedTab = localStorage.getItem('lora_active_tab');
-            if (savedTab && ['telemetry', 'controls', 'scan', 'config'].includes(savedTab)) {
+            if (savedTab && ['telemetry', 'controls', 'scan', 'mqtt', 'config'].includes(savedTab)) {
                 switchTab(savedTab);
             }
         } catch (e) {}
@@ -1217,7 +1428,14 @@ static const char* HTML_PAGE = R"RAW(
                 modbus_slave_id: parseInt(document.getElementById('modbus_slave_id').value),
                 modbus_address_devices: devices,
                 security_enabled: document.getElementById('security_enabled').checked,
-                aes_key: document.getElementById('aes_key').value.trim().toUpperCase()
+                aes_key: document.getElementById('aes_key').value.trim().toUpperCase(),
+                mqtt_enabled: document.getElementById('mqtt_enabled').checked,
+                mqtt_host: document.getElementById('mqtt_host').value.trim() || '127.0.0.1',
+                mqtt_port: parseInt(document.getElementById('mqtt_port').value, 10) || 1883,
+                mqtt_client_id: document.getElementById('mqtt_client_id').value.trim() || 'orangepi_lora_modbus',
+                mqtt_username: document.getElementById('mqtt_username').value.trim(),
+                mqtt_password: document.getElementById('mqtt_password').value,
+                mqtt_topic_prefix: document.getElementById('mqtt_topic_prefix').value.trim() || 'lora/modbus'
             };
 
             fetch('/api/config', {
@@ -1230,9 +1448,141 @@ static const char* HTML_PAGE = R"RAW(
             });
         });
 
-        // Initialize telemetry polling every 2.5s
-        setInterval(pollTelemetry, 2500);
+        // --- MQTT Bridge UI Logic ---
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function pollMqttStatus() {
+            fetch('/api/mqtt/status')
+                .then(res => res.json())
+                .then(st => {
+                    const badge = document.getElementById('mqtt_status_badge');
+                    const dot = document.getElementById('mqtt_tab_dot');
+                    if (badge && dot) {
+                        if (!st.enabled) {
+                            badge.className = 'badge badge-closed';
+                            badge.innerText = 'DISABLED';
+                            dot.style.background = '#9ca3af';
+                        } else if (st.connected) {
+                            badge.className = 'badge badge-open';
+                            badge.innerText = 'CONNECTED';
+                            dot.style.background = '#10b981';
+                        } else {
+                            badge.className = 'badge';
+                            badge.style.background = '#7f1d1d';
+                            badge.style.color = '#fca5a5';
+                            badge.innerText = 'DISCONNECTED';
+                            dot.style.background = '#ef4444';
+                        }
+                    }
+
+                    document.getElementById('mqtt_disp_broker').innerText = `${st.broker_host || '127.0.0.1'}:${st.broker_port || 1883}`;
+                    document.getElementById('mqtt_disp_prefix').innerText = st.topic_prefix || 'lora/modbus';
+                    document.getElementById('mqtt_disp_tx').innerText = st.tx_count || 0;
+                    document.getElementById('mqtt_disp_rx').innerText = st.rx_count || 0;
+                    document.getElementById('mqtt_disp_since').innerText = st.last_connected_time || 'Never';
+
+                    const errBanner = document.getElementById('mqtt_error_banner');
+                    if (errBanner) {
+                        if (st.last_error && st.last_error.length > 0) {
+                            errBanner.style.display = 'block';
+                            errBanner.innerText = 'Last Broker Notice: ' + st.last_error;
+                        } else {
+                            errBanner.style.display = 'none';
+                        }
+                    }
+
+                    const tbody = document.getElementById('mqtt_logs_body');
+                    if (tbody && st.recent_logs) {
+                        if (st.recent_logs.length === 0) {
+                            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No MQTT traffic recorded yet.</td></tr>';
+                        } else {
+                            let html = '';
+                            st.recent_logs.forEach(item => {
+                                const dirBadge = item.direction === 'TX'
+                                    ? '<span class="badge badge-open">TX</span>'
+                                    : '<span class="badge badge-val">RX</span>';
+                                html += `<tr>
+                                    <td><code>${escapeHtml(item.timestamp)}</code></td>
+                                    <td>${dirBadge}</td>
+                                    <td><code>${escapeHtml(item.topic)}</code></td>
+                                    <td style="font-family: monospace; font-size: 0.8rem; word-break: break-all;">${escapeHtml(item.payload)}</td>
+                                </tr>`;
+                            });
+                            tbody.innerHTML = html;
+                        }
+                    }
+                })
+                .catch(err => console.debug('MQTT status poll idle', err));
+        }
+
+        document.getElementById('mqttConfigForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const payload = {
+                mqtt_enabled: document.getElementById('mqtt_enabled').checked,
+                mqtt_host: document.getElementById('mqtt_host').value.trim() || '127.0.0.1',
+                mqtt_port: parseInt(document.getElementById('mqtt_port').value, 10) || 1883,
+                mqtt_client_id: document.getElementById('mqtt_client_id').value.trim() || 'orangepi_lora_modbus',
+                mqtt_username: document.getElementById('mqtt_username').value.trim(),
+                mqtt_password: document.getElementById('mqtt_password').value,
+                mqtt_topic_prefix: document.getElementById('mqtt_topic_prefix').value.trim() || 'lora/modbus'
+            };
+
+            fetch('/api/mqtt/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            }).then(res => res.json()).then(data => {
+                if (data.status === 'ok') {
+                    showToast('MQTT Bridge configuration saved & reconnecting!');
+                    setTimeout(pollMqttStatus, 600);
+                } else {
+                    showToast('Failed to save MQTT configuration', false);
+                }
+            }).catch(() => showToast('Request failed', false));
+        });
+
+        function applyMqttPreset(subtopic, payloadObj) {
+            document.getElementById('mqtt_test_subtopic').value = subtopic;
+            document.getElementById('mqtt_test_payload').value = JSON.stringify(payloadObj);
+        }
+
+        function sendMqttTestPublish() {
+            const subtopic = document.getElementById('mqtt_test_subtopic').value.trim();
+            const payload = document.getElementById('mqtt_test_payload').value;
+            if (!subtopic) {
+                showToast('Please enter a subtopic', false);
+                return;
+            }
+            fetch('/api/mqtt/publish', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ subtopic: subtopic, payload: payload })
+            }).then(res => res.json()).then(data => {
+                if (data.status === 'ok') {
+                    showToast(`Published to ${subtopic}`);
+                    setTimeout(pollMqttStatus, 400);
+                } else {
+                    showToast(data.error || 'MQTT publish failed (check broker connection)', false);
+                }
+            }).catch(() => showToast('Request failed', false));
+        }
+
+        function clearMqttLogs() {
+            fetch('/api/mqtt/clear_logs', { method: 'POST' })
+                .then(() => pollMqttStatus());
+        }
+
+        // Initialize telemetry & MQTT status polling every 2.5s
+        setInterval(() => {
+            pollTelemetry();
+            pollMqttStatus();
+        }, 2500);
         pollTelemetry();
+        pollMqttStatus();
     </script>
 </body>
 </html>
@@ -1521,6 +1871,79 @@ void start_web_server() {
             res.status = 400;
             res.set_content("{\"status\": \"error\", \"error\": \"Invalid request JSON\"}", "application/json");
         }
+    });
+
+    // --- MQTT Bridge REST API Endpoints ---
+
+    svr.Get("/api/mqtt/status", [](const httplib::Request& req, httplib::Response& res) {
+        MqttBridgeStatus st = get_mqtt_bridge_status();
+        nlohmann::json logs_arr = nlohmann::json::array();
+        for (const auto& entry : st.recent_logs) {
+            logs_arr.push_back({
+                {"timestamp", entry.timestamp},
+                {"direction", entry.direction},
+                {"topic", entry.topic},
+                {"payload", entry.payload}
+            });
+        }
+        nlohmann::json resp = {
+            {"enabled", st.enabled},
+            {"connected", st.connected},
+            {"broker_host", st.broker_host},
+            {"broker_port", st.broker_port},
+            {"client_id", st.client_id},
+            {"topic_prefix", st.topic_prefix},
+            {"tx_count", st.tx_count},
+            {"rx_count", st.rx_count},
+            {"last_error", st.last_error},
+            {"last_connected_time", st.last_connected_time},
+            {"recent_logs", logs_arr}
+        };
+        res.set_content(resp.dump(), "application/json");
+    });
+
+    svr.Post("/api/mqtt/config", [](const httplib::Request& req, httplib::Response& res) {
+        try {
+            auto j = nlohmann::json::parse(req.body);
+            if (j.contains("mqtt_enabled")) g_config.mqtt_enabled = j["mqtt_enabled"].get<bool>();
+            if (j.contains("mqtt_host")) g_config.mqtt_host = j["mqtt_host"].get<std::string>();
+            if (j.contains("mqtt_port")) g_config.mqtt_port = j["mqtt_port"].get<int>();
+            if (j.contains("mqtt_client_id")) g_config.mqtt_client_id = j["mqtt_client_id"].get<std::string>();
+            if (j.contains("mqtt_username")) g_config.mqtt_username = j["mqtt_username"].get<std::string>();
+            if (j.contains("mqtt_password")) g_config.mqtt_password = j["mqtt_password"].get<std::string>();
+            if (j.contains("mqtt_topic_prefix")) g_config.mqtt_topic_prefix = j["mqtt_topic_prefix"].get<std::string>();
+
+            g_config.save_to_file("config.json");
+            reload_mqtt_bridge();
+            res.set_content("{\"status\": \"ok\"}", "application/json");
+        } catch (...) {
+            res.status = 400;
+            res.set_content("{\"status\": \"error\", \"error\": \"Invalid MQTT config JSON\"}", "application/json");
+        }
+    });
+
+    svr.Post("/api/mqtt/publish", [](const httplib::Request& req, httplib::Response& res) {
+        try {
+            auto j = nlohmann::json::parse(req.body);
+            std::string subtopic = j.value("subtopic", "");
+            std::string payload = j.value("payload", "{}");
+            bool retain = j.value("retain", false);
+
+            if (mqtt_publish(subtopic, payload, retain)) {
+                res.set_content("{\"status\": \"ok\"}", "application/json");
+            } else {
+                res.status = 500;
+                res.set_content("{\"status\": \"error\", \"error\": \"MQTT broker not connected or bridge disabled\"}", "application/json");
+            }
+        } catch (...) {
+            res.status = 400;
+            res.set_content("{\"status\": \"error\", \"error\": \"Invalid publish request JSON\"}", "application/json");
+        }
+    });
+
+    svr.Post("/api/mqtt/clear_logs", [](const httplib::Request& req, httplib::Response& res) {
+        clear_mqtt_bridge_logs();
+        res.set_content("{\"status\": \"ok\"}", "application/json");
     });
 
     std::cout << "\n>>> Starting Embedded C++ Web Server on http://0.0.0.0:8080 <<<\n" << std::endl;

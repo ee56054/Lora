@@ -25,6 +25,15 @@ struct LoraConfig {
   bool security_enabled = true;
   std::string aes_key = "2B7E151628AED2A6ABF7158809CF4F3C";
 
+  // MQTT <-> Modbus Bridge
+  bool mqtt_enabled = true;
+  std::string mqtt_host = "127.0.0.1";
+  int mqtt_port = 1883;
+  std::string mqtt_client_id = "orangepi_lora_modbus";
+  std::string mqtt_username = "";
+  std::string mqtt_password = "";
+  std::string mqtt_topic_prefix = "lora/modbus";
+
   bool load_from_file(const std::string &filepath);
   bool save_to_file(const std::string &filepath) const;
 };

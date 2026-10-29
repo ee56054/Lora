@@ -12,5 +12,12 @@
         1
     ],
     "security_enabled": true,
-    "aes_key": "2B7E151628AED2A6ABF7158809CF4F3C"
+    "aes_key": "2B7E151628AED2A6ABF7158809CF4F3C",
+    "mqtt_enabled": true,
+    "mqtt_host": "127.0.0.1",
+    "mqtt_port": 1883,
+    "mqtt_client_id": "orangepi_lora_modbus",
+    "mqtt_username": "",
+    "mqtt_password": "",
+    "mqtt_topic_prefix": "lora/modbus"
 }

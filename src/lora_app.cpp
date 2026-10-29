@@ -3,6 +3,7 @@
 #include "lora_app.h"
 #include "modbus_app.h"
 #include "lora_security.h"
+#include "mqtt_bridge.h"
 #include "sx126x.h"
 #include "sx126x_hal.h"
 #include <cstring>
@@ -349,6 +350,7 @@ int run_lora_app() {
           start_web_server();
       });
       web_thread.detach();
+      start_mqtt_bridge();
       web_server_started = true;
   }
 
@@ -359,6 +361,8 @@ int run_lora_app() {
           << std::endl;
       g_config.save_to_file("config.json");
     }
+
+    reload_mqtt_bridge();
 
     // Initialize LoRa Security Engine (AES-128-CTR + CRC16 MIC)
     if (g_config.security_enabled) {
@@ -538,14 +542,6 @@ int run_lora_app() {
 
   // Clear any pending IRQs
   sx126x_clear_irq_status(NULL, SX126X_IRQ_ALL);
-
-  // Set sync word to 0x3444 (public LoRa network)
-  // std::cout << "Setting sync word to 0x3444..." << std::endl;
-  // status = sx126x_set_lora_sync_word(NULL, 0x44); // Low byte of 0x3444
-  // if (status != SX126X_STATUS_OK) {
-  //   std::cerr << "Failed to set sync word, status: " << (int)status
-  //             << std::endl;
-  // }
 
   // Read and verify chip configuration
   std::cout << "\n--- Verifying Configuration on Chip ---" << std::endl;

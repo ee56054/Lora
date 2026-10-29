@@ -168,6 +168,21 @@ bool LoraConfig::load_from_file(const std::string &filepath) {
     if (j.contains("aes_key"))
       aes_key = j["aes_key"].get<std::string>();
 
+    if (j.contains("mqtt_enabled"))
+      mqtt_enabled = j["mqtt_enabled"].get<bool>();
+    if (j.contains("mqtt_host"))
+      mqtt_host = j["mqtt_host"].get<std::string>();
+    if (j.contains("mqtt_port"))
+      mqtt_port = j["mqtt_port"].get<int>();
+    if (j.contains("mqtt_client_id"))
+      mqtt_client_id = j["mqtt_client_id"].get<std::string>();
+    if (j.contains("mqtt_username"))
+      mqtt_username = j["mqtt_username"].get<std::string>();
+    if (j.contains("mqtt_password"))
+      mqtt_password = j["mqtt_password"].get<std::string>();
+    if (j.contains("mqtt_topic_prefix"))
+      mqtt_topic_prefix = j["mqtt_topic_prefix"].get<std::string>();
+
     return true;
   } catch (const nlohmann::json::exception &e) {
     std::cerr << "JSON parsing error: " << e.what() << std::endl;
@@ -191,6 +206,14 @@ bool LoraConfig::save_to_file(const std::string &filepath) const {
 
   j["security_enabled"] = security_enabled;
   j["aes_key"] = aes_key;
+
+  j["mqtt_enabled"] = mqtt_enabled;
+  j["mqtt_host"] = mqtt_host;
+  j["mqtt_port"] = mqtt_port;
+  j["mqtt_client_id"] = mqtt_client_id;
+  j["mqtt_username"] = mqtt_username;
+  j["mqtt_password"] = mqtt_password;
+  j["mqtt_topic_prefix"] = mqtt_topic_prefix;
 
   std::ofstream file(filepath);
   if (!file.is_open()) {

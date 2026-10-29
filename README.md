@@ -20,10 +20,15 @@ A high-performance C++ application for Linux (optimized for Orange Pi Zero 2W an
   - On-demand single reads, bulk reads (`read_all`), single writes, and multi-writes.
 - **Embedded Web Server & REST API**:
   - Built-in HTTP server running on port `8080` powered by `cpp-httplib` and `nlohmann/json`.
-  - Modern dark-themed responsive Web UI.
+  - Modern multi-tab dark-themed responsive Web UI (`Live Telemetry`, `Modbus Controls`, `Scan Devices`, `MQTT Bridge`, `LoRa & Security Config`).
   - **Live Telemetry Dashboard**: real-time monitoring and individual `[Read]` buttons for all 15 mapped Modbus points, with 2.5-second background UI auto-sync.
-  - **Direct Controls**: quick buttons for valve switching and holding register configuration.
+  - **Direct Controls**: quick buttons for valve switching and holding register configuration (supporting unicast `1..247` and global broadcast `0`).
+  - **Device Discovery Scanner**: scan a range of Slave IDs (`1..247`) over LoRa to discover active STM32 nodes.
   - **Hardware Config Editor**: live editing of frequency, TX power, SF, bandwidth, and coding rate with hot-reload.
+- **Bidirectional MQTT ↔ Modbus RTU Bridge**:
+  - Built-in zero-dependency MQTT v3.1.1 client with automatic reconnection, Last Will & Testament (`LWT`), and dedicated asynchronous command execution queue.
+  - **Modbus → MQTT**: Automatically publishes telemetry updates to `<prefix>/telemetry/<slave_id>` and `<prefix>/telemetry` whenever Modbus read/write/probe operations complete.
+  - **MQTT → Modbus**: Subscribes to `<prefix>/cmd/#` to execute remote Modbus reads, writes (including Slave ID `0` global broadcast), and device probes, publishing results to `<prefix>/response`.
 - **Hardware Abstraction Layer (HAL)**:
   - Linux `spidev` interface for high-speed SPI transfers.
   - GPIO control using `wiringOP` for reset, busy, DIO1 interrupt, and DIO4 transmit enable pins.
@@ -107,7 +112,14 @@ The application automatically reads and monitors `config.json`. When changes are
     "modbus_slave_id": 1,
     "modbus_address_devices": [1],
     "security_enabled": true,
-    "aes_key": "2B7E151628AED2A6ABF7158809CF4F3C"
+    "aes_key": "2B7E151628AED2A6ABF7158809CF4F3C",
+    "mqtt_enabled": true,
+    "mqtt_host": "127.0.0.1",
+    "mqtt_port": 1883,
+    "mqtt_client_id": "orangepi_lora_modbus",
+    "mqtt_username": "",
+    "mqtt_password": "",
+    "mqtt_topic_prefix": "lora/modbus"
 }
 ```
 
@@ -304,6 +316,59 @@ Write multiple holding registers (FC 16). Supports `slave_id: 0` (broadcast) or 
 
 ---
 
+## MQTT ↔ Modbus RTU Bridge
+
+The application includes a built-in MQTT v3.1.1 client (`src/mqtt_bridge.h` / `src/mqtt_bridge.cpp`) that bridges MQTT topics directly to Modbus RTU over LoRa.
+
+### Published Topics (Modbus → MQTT)
+| Topic | Retain | Description |
+| :--- | :---: | :--- |
+| `<prefix>/status` | Yes | Online/Offline LWT status (`{"online": true, "client_id": "..."}`) |
+| `<prefix>/telemetry/<slave_id>` | No | Full JSON telemetry snapshot for `<slave_id>` after any read/write |
+| `<prefix>/telemetry` | No | Latest telemetry snapshot across all slaves |
+| `<prefix>/response` | No | Execution result of any command sent to `<prefix>/cmd/#` |
+| `<prefix>/response/<slave_id>` | No | Slave-specific command execution result |
+| `<prefix>/event/probe/<slave_id>` | No | Published when a slave responds to a discovery probe |
+
+### Subscribed Command Topics (MQTT → Modbus)
+Publish JSON payloads to `<prefix>/cmd/<action>` (or `<prefix>/cmd` with `"action": "<action>"` in the JSON body):
+
+1. **Control Valve (`<prefix>/cmd/write_valve`)** — *Supports Unicast (`1..247`) & Broadcast (`0`)*
+   ```json
+   {"slave_id": 1, "valve": 1, "open": true}
+   ```
+2. **Write Single Coil (`<prefix>/cmd/write_coil`)** — *Supports `0..247`*
+   ```json
+   {"slave_id": 0, "address": 0, "state": true}
+   ```
+3. **Write Single Holding Register (`<prefix>/cmd/write_register`)** — *Supports `0..247`*
+   ```json
+   {"slave_id": 1, "address": 4, "value": 1}
+   ```
+4. **Write Multiple Coils (`<prefix>/cmd/write_multiple_coils`)** — *Supports `0..247`*
+   ```json
+   {"slave_id": 0, "address": 0, "values": [1, 1]}
+   ```
+5. **Write Multiple Registers (`<prefix>/cmd/write_multiple_registers`)** — *Supports `0..247`*
+   ```json
+   {"slave_id": 0, "address": 4, "values": [1, 1]}
+   ```
+6. **Read Single Point (`<prefix>/cmd/read`)** — *Unicast `1..247`*
+   ```json
+   {"slave_id": 1, "type": "input_register", "address": 0}
+   ```
+   *Valid `type` values: `"coil"`, `"discrete_input"`, `"input_register"`, `"holding_register"`*
+7. **Read All Telemetry (`<prefix>/cmd/read_all`)** — *Unicast `1..247`*
+   ```json
+   {"slave_id": 1}
+   ```
+8. **Probe / Scan Slave (`<prefix>/cmd/probe`)** — *Unicast `1..247`*
+   ```json
+   {"slave_id": 1, "timeout_ms": 1000}
+   ```
+
+---
+
 ## Architecture & Code Structure
 
 ```
@@ -311,15 +376,16 @@ Write multiple holding registers (FC 16). Supports `slave_id: 0` (broadcast) or 
 ├── config.json           # Runtime configuration file
 ├── README.md             # Project documentation
 └── src/
-    ├── main.cpp          # App entry point, web server thread & run loop
-    ├── config.h / .cpp   # JSON configuration manager & validation
-    ├── hal.h / .cpp      # SX126X Hardware Abstraction Layer (SPI / wiringOP GPIO)
-    ├── lora_app.h / .cpp # Transceiver orchestration and RX/TX routines
+    ├── main.cpp             # App entry point, web server thread & run loop
+    ├── config.h / .cpp      # JSON configuration manager & validation
+    ├── hal.h / .cpp         # SX126X Hardware Abstraction Layer (SPI / wiringOP GPIO)
+    ├── lora_app.h / .cpp    # Transceiver orchestration and RX/TX routines
     ├── lora_security.h / .cpp # AES-128-CTR encryption engine & CRC16 MIC (STM32 compatible)
-    ├── modbus_app.h / .cpp # Modbus app logic, on-demand read/write, telemetry cache
+    ├── modbus_app.h / .cpp  # Modbus app logic, on-demand read/write, telemetry cache
     ├── modbus_lora.h / .cpp # libmodbus custom backend for LoRa transport & CRC-16
+    ├── mqtt_bridge.h / .cpp # Bidirectional MQTT v3.1.1 <-> Modbus RTU over LoRa bridge
     ├── diagnostics.h / .cpp # Radio status and packet inspection utilities
-    └── web_server.h / .cpp  # Embedded HTTP server, REST endpoints & HTML UI
+    └── web_server.h / .cpp  # Embedded HTTP server, REST endpoints & multi-tab HTML UI
 ```
 
 ---
