@@ -243,7 +243,6 @@ void mqtt_publish_telemetry(int slave_id, const ModbusTelemetry &telem) {
 
   std::string dump = j.dump();
   mqtt_publish("telemetry/" + std::to_string(slave_id), dump, false);
-  mqtt_publish("telemetry", dump, false);
 }
 
 void mqtt_publish_modbus_event(const std::string &event_type, int slave_id, const std::string &json_payload) {
@@ -504,7 +503,6 @@ static void execute_mqtt_modbus_command(const std::string &topic, const std::str
 
   std::string out_str = resp.dump();
   mqtt_publish("response", out_str, false);
-  mqtt_publish("response/" + std::to_string(slave_id), out_str, false);
 }
 
 static void mqtt_cmd_worker_loop() {

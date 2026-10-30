@@ -317,6 +317,7 @@ static std::string get_current_time_str() {
 
 static std::string g_last_modbus_error = "";
 static std::mutex g_error_mutex;
+static bool g_suppress_step_telemetry = false;
 
 static void set_last_modbus_error(const std::string &err) {
   std::lock_guard<std::mutex> lock(g_error_mutex);
@@ -439,7 +440,9 @@ bool modbus_read_coil_val(int slave_id, int address, bool &out_val) {
     g_telemetry.last_update = get_current_time_str();
   }
 
-  mqtt_publish_telemetry(slave_id, get_modbus_telemetry());
+  if (!g_suppress_step_telemetry) {
+    mqtt_publish_telemetry(slave_id, get_modbus_telemetry());
+  }
   set_last_modbus_error("");
   return true;
 }
@@ -488,7 +491,9 @@ bool modbus_read_discrete_input_val(int slave_id, int address, bool &out_val) {
     g_telemetry.last_update = get_current_time_str();
   }
 
-  mqtt_publish_telemetry(slave_id, get_modbus_telemetry());
+  if (!g_suppress_step_telemetry) {
+    mqtt_publish_telemetry(slave_id, get_modbus_telemetry());
+  }
   set_last_modbus_error("");
   return true;
 }
@@ -537,7 +542,9 @@ bool modbus_read_input_reg_val(int slave_id, int address, uint16_t &out_val) {
     g_telemetry.last_update = get_current_time_str();
   }
 
-  mqtt_publish_telemetry(slave_id, get_modbus_telemetry());
+  if (!g_suppress_step_telemetry) {
+    mqtt_publish_telemetry(slave_id, get_modbus_telemetry());
+  }
   set_last_modbus_error("");
   return true;
 }
@@ -595,7 +602,9 @@ bool modbus_read_holding_reg_val(int slave_id, int address, uint16_t &out_val) {
     g_telemetry.last_update = get_current_time_str();
   }
 
-  mqtt_publish_telemetry(slave_id, get_modbus_telemetry());
+  if (!g_suppress_step_telemetry) {
+    mqtt_publish_telemetry(slave_id, get_modbus_telemetry());
+  }
   set_last_modbus_error("");
   return true;
 }
@@ -608,6 +617,8 @@ bool modbus_read_all(int slave_id) {
   std::cout << "\n========================================" << std::endl;
   std::cout << ">>> [MODBUS READ ALL] Reading full telemetry for Slave " << slave_id << " <<<" << std::endl;
   std::cout << "========================================" << std::endl;
+
+  g_suppress_step_telemetry = true;
 
   bool b_val = false;
   uint16_t reg_val = 0;
@@ -635,6 +646,9 @@ bool modbus_read_all(int slave_id) {
     modbus_read_holding_reg_val(slave_id, addr, reg_val);
     usleep(50000);
   }
+
+  g_suppress_step_telemetry = false;
+  mqtt_publish_telemetry(slave_id, get_modbus_telemetry());
 
   std::cout << "\n>>> [MODBUS READ ALL COMPLETED] Slave " << slave_id << " <<<\n" << std::endl;
   return true;
