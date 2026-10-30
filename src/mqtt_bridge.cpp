@@ -229,8 +229,6 @@ void mqtt_publish_telemetry(int slave_id, const ModbusTelemetry &telem) {
     {"valve2_status", telem.valve2_status},
     {"sensor1", telem.sensor1},
     {"sensor2", telem.sensor2},
-    {"hw_id_high", telem.hw_id_high},
-    {"hw_id_low", telem.hw_id_low},
     {"hw_id", hw_id},
     {"tx_count_high", telem.tx_count_high},
     {"tx_count_low", telem.tx_count_low},
@@ -452,6 +450,14 @@ static void execute_mqtt_modbus_command(const std::string &topic, const std::str
   } else if (action == "read_all") {
     if (modbus_read_all(slave_id)) {
       ModbusTelemetry telem = get_modbus_telemetry();
+      uint32_t hw_id = 0;
+      if (telem.hw_id_high >= 0 && telem.hw_id_low >= 0) {
+        hw_id = ((uint32_t)telem.hw_id_high << 16) | (uint32_t)telem.hw_id_low;
+      }
+      uint32_t tx_cnt = 0;
+      if (telem.tx_count_high >= 0 && telem.tx_count_low >= 0) {
+        tx_cnt = ((uint32_t)telem.tx_count_high << 16) | (uint32_t)telem.tx_count_low;
+      }
       resp["status"] = "ok";
       resp["telemetry"] = {
         {"slave_id", telem.slave_id},
@@ -461,10 +467,10 @@ static void execute_mqtt_modbus_command(const std::string &topic, const std::str
         {"valve2_status", telem.valve2_status},
         {"sensor1", telem.sensor1},
         {"sensor2", telem.sensor2},
-        {"hw_id_high", telem.hw_id_high},
-        {"hw_id_low", telem.hw_id_low},
+        {"hw_id", hw_id},
         {"tx_count_high", telem.tx_count_high},
         {"tx_count_low", telem.tx_count_low},
+        {"tx_count", tx_cnt},
         {"valve1_reg", telem.valve1_reg},
         {"valve2_reg", telem.valve2_reg},
         {"sensor1_reg", telem.sensor1_reg},
